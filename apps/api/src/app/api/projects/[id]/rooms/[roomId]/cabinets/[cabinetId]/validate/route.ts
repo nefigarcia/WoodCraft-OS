@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
+import type { CabinetPart } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         height: Number(cabinet.height),
         depth: Number(cabinet.depth),
         parameters: cabinet.parameters as Record<string, unknown>,
-        parts: cabinet.parts.map((p) => ({
+        parts: cabinet.parts.map((p: CabinetPart) => ({
           name: p.name,
           width: Number(p.width),
           height: Number(p.height),
