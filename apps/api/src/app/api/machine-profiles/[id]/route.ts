@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateMachineProfileSchema } from "@/lib/validate";
@@ -23,7 +24,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const existing = await prisma.machineProfile.findFirst({ where: { id: params.id, orgId } });
   if (!existing) return apiError("Machine profile not found", 404);
 
-  const updated = await prisma.machineProfile.update({ where: { id: params.id }, data: parsed.data });
+  const updated = await prisma.machineProfile.update({ where: { id: params.id }, data: parsed.data as Prisma.MachineProfileUpdateInput });
   return ok(updated);
 }
 

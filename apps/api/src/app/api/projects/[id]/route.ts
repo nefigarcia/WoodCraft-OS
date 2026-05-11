@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateProjectSchema } from "@/lib/validate";
@@ -45,7 +46,7 @@ export async function PATCH(
 
   const updated = await prisma.project.update({
     where: { id: params.id },
-    data: parsed.data,
+    data: parsed.data as Prisma.ProjectUpdateInput,
     include: { client: { select: { id: true, name: true } } },
   });
   return ok(updated);
