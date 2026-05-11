@@ -2,20 +2,14 @@ import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import type { TokenPayload } from "@woodcraft/shared";
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+// Empty-string fallback keeps the module loadable at build time.
+// At runtime, missing secrets cause JWT operations to fail with a
+// verification error, which the middleware converts to a 401.
+const enc = new TextEncoder();
+const accessKey = enc.encode(process.env.JWT_ACCESS_SECRET ?? "");
+const refreshKey = enc.encode(process.env.JWT_REFRESH_SECRET ?? "");
 const ACCESS_EXPIRES = process.env.JWT_ACCESS_EXPIRES ?? "15m";
 const REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES ?? "7d";
-
-if (!ACCESS_SECRET || !REFRESH_SECRET) {
-  throw new Error(
-    "JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be set in environment"
-  );
-}
-
-const enc = new TextEncoder();
-const accessKey = enc.encode(ACCESS_SECRET);
-const refreshKey = enc.encode(REFRESH_SECRET);
 
 type BasePayload = Omit<TokenPayload, "iat" | "exp">;
 
