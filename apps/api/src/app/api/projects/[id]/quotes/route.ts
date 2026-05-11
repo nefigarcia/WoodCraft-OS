@@ -58,16 +58,18 @@ export async function POST(
     total: item.qty * item.unitPrice,
   }));
 
-  const { subtotal, taxAmount, total } = computeTotals(enrichedItems, parsed.data.taxRate);
+  const taxRate = parsed.data.taxRate ?? 0;
+  const { subtotal, taxAmount, total } = computeTotals(enrichedItems, taxRate);
 
   const quote = await prisma.quote.create({
     data: {
       orgId,
       projectId: params.id,
       userId,
-      lineItems: enrichedItems as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      lineItems: enrichedItems as any,
       subtotal,
-      taxRate: parsed.data.taxRate,
+      taxRate,
       taxAmount,
       total,
       notes: parsed.data.notes,

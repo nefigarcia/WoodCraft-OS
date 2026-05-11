@@ -55,7 +55,7 @@ export const createProjectSchema = z.object({
   clientId: z.string().cuid("Invalid client ID"),
   name: z.string().min(1, "Name is required").max(255),
   description: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.any()).optional(),
 });
 
 export const updateProjectSchema = z.object({
@@ -64,7 +64,7 @@ export const updateProjectSchema = z.object({
   status: z
     .enum(["draft", "in_review", "approved", "in_production", "complete"])
     .optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.any()).optional(),
 });
 
 // ─── Rooms ────────────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ export const createRoomSchema = z.object({
   width: z.number().positive("Width must be positive"),
   height: z.number().positive("Height must be positive"),
   depth: z.number().positive("Depth must be positive"),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.any()).optional(),
 });
 
 export const updateRoomSchema = createRoomSchema.partial();
@@ -92,7 +92,7 @@ export const createCabinetSchema = z.object({
   posX: z.number().default(0),
   posY: z.number().default(0),
   posZ: z.number().default(0),
-  parameters: z.record(z.unknown()).default({}),
+  parameters: z.record(z.any()).default({}),
   materialId: z.string().cuid().optional(),
 });
 
@@ -105,7 +105,7 @@ export const updateCabinetSchema = z.object({
   posY: z.number().optional(),
   posZ: z.number().optional(),
   // Merged (not replaced) into existing parameters
-  parameters: z.record(z.unknown()).optional(),
+  parameters: z.record(z.any()).optional(),
   materialId: z.string().cuid().nullable().optional(),
 });
 
@@ -128,7 +128,7 @@ export const createMaterialSchema = z.object({
   costPerSheet: z.number().min(0),
   supplier: z.string().max(255).optional(),
   sku: z.string().max(100).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.any()).optional(),
 });
 
 export const updateMaterialSchema = createMaterialSchema.partial();
@@ -142,7 +142,7 @@ export const createMachineProfileSchema = z.object({
   manufacturer: z.string().min(1).max(255),
   model: z.string().min(1).max(255),
   type: z.enum(MACHINE_TYPES),
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.any()).default({}),
   postProcessor: z.string().min(1).max(100),
 });
 

@@ -26,10 +26,10 @@ export async function syncParts(
         quantity: p.quantity,
         grainDir: p.grain_dir ?? null,
         edgeBanding: p.edge_banding
-          ? (p.edge_banding as Prisma.InputJsonValue)
+          ? (p.edge_banding as any)
           : undefined,
         cutParams: p.cut_params
-          ? (p.cut_params as Prisma.InputJsonValue)
+          ? (p.cut_params as any)
           : undefined,
       })),
     }),

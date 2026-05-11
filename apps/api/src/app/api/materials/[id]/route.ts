@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateMaterialSchema } from "@/lib/validate";
@@ -24,10 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const existing = await prisma.material.findFirst({ where: { id: params.id, orgId } });
   if (!existing) return apiError("Material not found", 404);
 
-  const updated = await prisma.material.update({
-    where: { id: params.id },
-    data: { ...parsed.data, ...(parsed.data.metadata !== undefined && { metadata: parsed.data.metadata as Prisma.InputJsonValue }) },
-  });
+  const updated = await prisma.material.update({ where: { id: params.id }, data: parsed.data });
   return ok(updated);
 }
 

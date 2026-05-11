@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { parseBody, updateRoomSchema } from "@/lib/validate";
@@ -39,10 +38,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (!await findRoom(params.roomId, params.id, orgId)) return apiError("Room not found", 404);
 
-  const updated = await prisma.room.update({
-    where: { id: params.roomId },
-    data: { ...parsed.data, ...(parsed.data.metadata !== undefined && { metadata: parsed.data.metadata as Prisma.InputJsonValue }) },
-  });
+  const updated = await prisma.room.update({ where: { id: params.roomId }, data: parsed.data });
   return ok(updated);
 }
 

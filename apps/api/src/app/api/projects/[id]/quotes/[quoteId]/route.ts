@@ -51,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     where: { id: params.quoteId },
     data: {
       ...parsed.data,
-      lineItems: lineItems as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      lineItems: lineItems as any,
       subtotal,
       taxRate,
       taxAmount,

@@ -105,7 +105,7 @@ Check for: dimensions outside standard ranges, cabinet exceeding room size, part
   });
 
   const toolCall = response.choices[0]?.message.tool_calls?.[0];
-  if (!toolCall) throw new Error("OpenAI did not return a tool call");
+  if (!toolCall || toolCall.type !== "function") throw new Error("OpenAI did not return a tool call");
 
   return JSON.parse(toolCall.function.arguments) as ValidationResult;
 }
@@ -158,10 +158,10 @@ export async function POST(req: NextRequest, { params }: Params) {
       orgId,
       projectId: params.id,
       status: result.status,
-      errors: result.errors as unknown as import("@prisma/client").Prisma.InputJsonValue,
-      warnings: result.warnings as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      errors: result.errors as any,
+      warnings: result.warnings as any,
       aiModel: "gpt-4o-mini",
-      rawResponse: result as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      rawResponse: result as any,
     },
   });
 

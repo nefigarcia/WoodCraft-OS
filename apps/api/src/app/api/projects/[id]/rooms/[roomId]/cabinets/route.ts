@@ -49,7 +49,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   // Create the cabinet record first
   const cabinet = await prisma.cabinet.create({
-    data: { ...parsed.data, roomId: params.roomId, orgId },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: { ...parsed.data, roomId: params.roomId, orgId } as any,
   });
 
   // Call cad-service to compute initial parts (non-fatal if unavailable)

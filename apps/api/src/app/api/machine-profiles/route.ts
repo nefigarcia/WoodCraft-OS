@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
   const parsed = parseBody(createMachineProfileSchema, body);
   if (!parsed.success) return apiError(parsed.error, 422, "VALIDATION_ERROR");
 
-  const profile = await prisma.machineProfile.create({ data: { ...parsed.data, orgId } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const profile = await prisma.machineProfile.create({ data: { ...parsed.data, orgId } as any });
   return ok(profile, 201);
 }

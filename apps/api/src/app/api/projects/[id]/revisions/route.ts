@@ -74,7 +74,7 @@ export async function POST(
       orgId,
       userId,
       version,
-      snapshot: snapshot as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      snapshot: snapshot as any,
       message: parsed.data.message,
     },
     include: { user: { select: { id: true, firstName: true, lastName: true } } },

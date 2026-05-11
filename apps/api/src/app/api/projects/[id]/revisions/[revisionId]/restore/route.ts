@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       orgId,
       userId: getContext(req).userId,
       version: (latestVersion?.version ?? 0) + 1,
-      snapshot: currentSnapshot as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      snapshot: currentSnapshot as any,
       message: `Auto-saved before restoring to v${revision.version}`,
     },
   });
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         width: roomSnap.width,
         height: roomSnap.height,
         depth: roomSnap.depth,
-        metadata: roomSnap.metadata as import("@prisma/client").Prisma.InputJsonValue ?? undefined,
+        metadata: roomSnap.metadata as any ?? undefined,
         cabinets: {
           create: roomSnap.cabinets.map((cab) => ({
             id: cab.id,
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest, { params }: Params) {
             posX: cab.posX,
             posY: cab.posY,
             posZ: cab.posZ,
-            parameters: cab.parameters as import("@prisma/client").Prisma.InputJsonValue,
+            parameters: cab.parameters as any,
             materialId: cab.materialId ?? undefined,
             parts: {
               create: cab.parts.map((p) => ({
@@ -113,8 +113,8 @@ export async function POST(req: NextRequest, { params }: Params) {
                 quantity: p.quantity,
                 materialId: p.materialId ?? undefined,
                 grainDir: p.grainDir ?? undefined,
-                edgeBanding: p.edgeBanding as import("@prisma/client").Prisma.InputJsonValue ?? undefined,
-                cutParams: p.cutParams as import("@prisma/client").Prisma.InputJsonValue ?? undefined,
+                edgeBanding: p.edgeBanding as any ?? undefined,
+                cutParams: p.cutParams as any ?? undefined,
               })),
             },
           })),
