@@ -27,7 +27,11 @@ interface ValidationResult {
   warnings: ValidationIssue[];
 }
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy — instantiated on first request, not at module load time.
+// Module-level OpenAI() throws during Next.js static build when OPENAI_API_KEY is unset.
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 async function validateWithOpenAI(
   cabinet: {
@@ -41,7 +45,7 @@ async function validateWithOpenAI(
   roomWidth: number,
   roomHeight: number
 ): Promise<ValidationResult> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       {
