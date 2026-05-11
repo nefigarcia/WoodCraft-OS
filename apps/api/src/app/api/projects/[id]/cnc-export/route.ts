@@ -79,7 +79,7 @@ export async function POST(
       body: JSON.stringify({ jobId, parts }),
     }).catch(() => null);
     if (dxfRes?.ok) {
-      dxfResult = (await dxfRes.json()) as typeof dxfResult;
+      dxfResult = (await dxfRes.json()) as { jobId: string; dxf: string; partCount: number };
     }
   }
 
