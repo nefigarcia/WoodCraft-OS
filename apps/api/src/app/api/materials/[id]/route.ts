@@ -24,7 +24,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const existing = await prisma.material.findFirst({ where: { id: params.id, orgId } });
   if (!existing) return apiError("Material not found", 404);
 
-  const updated = await prisma.material.update({ where: { id: params.id }, data: parsed.data as Prisma.MaterialUpdateInput });
+  const updated = await prisma.material.update({
+    where: { id: params.id },
+    data: { ...parsed.data, ...(parsed.data.metadata !== undefined && { metadata: parsed.data.metadata as Prisma.InputJsonValue }) },
+  });
   return ok(updated);
 }
 

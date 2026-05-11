@@ -24,7 +24,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const existing = await prisma.machineProfile.findFirst({ where: { id: params.id, orgId } });
   if (!existing) return apiError("Machine profile not found", 404);
 
-  const updated = await prisma.machineProfile.update({ where: { id: params.id }, data: parsed.data as Prisma.MachineProfileUpdateInput });
+  const { config, ...rest } = parsed.data;
+  const updated = await prisma.machineProfile.update({
+    where: { id: params.id },
+    data: { ...rest, ...(config !== undefined && { config: config as Prisma.InputJsonValue }) },
+  });
   return ok(updated);
 }
 

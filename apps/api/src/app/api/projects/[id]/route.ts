@@ -46,7 +46,7 @@ export async function PATCH(
 
   const updated = await prisma.project.update({
     where: { id: params.id },
-    data: parsed.data as Prisma.ProjectUpdateInput,
+    data: { ...parsed.data, ...(parsed.data.metadata !== undefined && { metadata: parsed.data.metadata as Prisma.InputJsonValue }) },
     include: { client: { select: { id: true, name: true } } },
   });
   return ok(updated);

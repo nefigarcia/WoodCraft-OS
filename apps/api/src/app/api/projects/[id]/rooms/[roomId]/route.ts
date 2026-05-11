@@ -39,7 +39,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (!await findRoom(params.roomId, params.id, orgId)) return apiError("Room not found", 404);
 
-  const updated = await prisma.room.update({ where: { id: params.roomId }, data: parsed.data as Prisma.RoomUpdateInput });
+  const updated = await prisma.room.update({
+    where: { id: params.roomId },
+    data: { ...parsed.data, ...(parsed.data.metadata !== undefined && { metadata: parsed.data.metadata as Prisma.InputJsonValue }) },
+  });
   return ok(updated);
 }
 
