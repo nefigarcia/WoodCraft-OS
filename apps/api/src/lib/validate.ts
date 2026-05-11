@@ -133,6 +133,58 @@ export const createMaterialSchema = z.object({
 
 export const updateMaterialSchema = createMaterialSchema.partial();
 
+// ─── Machine Profiles ────────────────────────────────────────────────────────
+
+export const MACHINE_TYPES = ["cnc_router", "panel_saw", "edge_bander"] as const;
+
+export const createMachineProfileSchema = z.object({
+  name: z.string().min(1).max(255),
+  manufacturer: z.string().min(1).max(255),
+  model: z.string().min(1).max(255),
+  type: z.enum(MACHINE_TYPES),
+  config: z.record(z.unknown()).default({}),
+  postProcessor: z.string().min(1).max(100),
+});
+
+export const updateMachineProfileSchema = createMachineProfileSchema.partial();
+
+// ─── CNC Export ───────────────────────────────────────────────────────────────
+
+export const cncExportSchema = z.object({
+  machineProfileId: z.string().cuid("Invalid machine profile ID"),
+  roomIds: z.array(z.string().cuid()).optional(), // undefined = all rooms
+  format: z.enum(["gcode", "dxf", "both"]).default("both"),
+});
+
+// ─── Quotes ──────────────────────────────────────────────────────────────────
+
+export const quoteLineItemSchema = z.object({
+  description: z.string().min(1).max(500),
+  qty: z.number().positive(),
+  unitPrice: z.number().min(0),
+});
+
+export const createQuoteSchema = z.object({
+  lineItems: z.array(quoteLineItemSchema).min(1, "At least one line item is required"),
+  taxRate: z.number().min(0).max(1).default(0),
+  notes: z.string().optional(),
+  validUntil: z.string().datetime().optional(),
+});
+
+export const updateQuoteSchema = z.object({
+  status: z.enum(["draft", "sent", "accepted", "rejected", "expired"]).optional(),
+  lineItems: z.array(quoteLineItemSchema).optional(),
+  taxRate: z.number().min(0).max(1).optional(),
+  notes: z.string().optional(),
+  validUntil: z.string().datetime().nullable().optional(),
+});
+
+// ─── Revisions ────────────────────────────────────────────────────────────────
+
+export const createRevisionSchema = z.object({
+  message: z.string().max(500).optional(),
+});
+
 // ─── Inferred types ───────────────────────────────────────────────────────────
 
 export type CreateClientInput = z.infer<typeof createClientSchema>;
@@ -145,3 +197,7 @@ export type CreateCabinetInput = z.infer<typeof createCabinetSchema>;
 export type UpdateCabinetInput = z.infer<typeof updateCabinetSchema>;
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;
 export type UpdateMaterialInput = z.infer<typeof updateMaterialSchema>;
+export type CreateMachineProfileInput = z.infer<typeof createMachineProfileSchema>;
+export type CncExportInput = z.infer<typeof cncExportSchema>;
+export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
+export type UpdateQuoteInput = z.infer<typeof updateQuoteSchema>;

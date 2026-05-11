@@ -19,7 +19,9 @@
     "zustand": "^5.0.0",
     "@woodcraft/shared": "*",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.4"
+    "tailwind-merge": "^2.5.4",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -9,6 +9,7 @@ import { useCabinets } from "@/hooks/useCabinets";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { RoomSelector } from "./RoomSelector";
 import { AddCabinetButton } from "./AddCabinetButton";
+import { useCollab } from "@/hooks/useCollab";
 import type { Cabinet } from "@woodcraft/shared";
 
 interface Props {
@@ -50,6 +51,8 @@ export default function CabinetEditor({ projectId }: Props) {
   const { selectedRoomId, cabinets, selectedCabinetId, selectCabinet } = useEditorStore();
   const { loading: roomLoading } = useRoomCabinets(projectId, selectedRoomId);
   const { save, remove, validate, saving, validating } = useCabinets(projectId);
+  // Graceful: collab-service may not be running in dev; errors are caught inside
+  const { broadcast } = useCollab(projectId);
 
   const selectedCabinet = cabinets.find((c) => c.id === selectedCabinetId);
   const isLoading = projectLoading || roomLoading;
