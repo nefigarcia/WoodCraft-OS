@@ -20,15 +20,23 @@ export async function GET(
       skip,
       take,
       orderBy: { version: "desc" },
-      include: { user: { select: { id: true, firstName: true, lastName: true } } },
-      // Omit the full snapshot from list view — can be huge
-      // snapshot intentionally NOT selected here; use GET /revisions/[id] for it
+      // Explicitly select every field except snapshot — it can be several MB per row
+      select: {
+        id: true,
+        projectId: true,
+        orgId: true,
+        userId: true,
+        version: true,
+        message: true,
+        createdAt: true,
+        user: { select: { id: true, firstName: true, lastName: true } },
+      },
     }),
     prisma.revision.count({ where: { projectId: params.id, orgId } }),
   ]);
 
   return ok({
-    data: revisions.map(({ snapshot: _snapshot, ...r }) => r),
+    data: revisions,
     meta: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) },
   });
 }
@@ -68,18 +76,31 @@ export async function POST(
   });
   const version = (latest?.version ?? 0) + 1;
 
-  const revision = await prisma.revision.create({
+  await prisma.revision.create({
     data: {
       projectId: params.id,
       orgId,
       userId,
       version,
-      snapshot: snapshot as any,
+      snapshot: snapshot as never,
       message: parsed.data.message,
     },
-    include: { user: { select: { id: true, firstName: true, lastName: true } } },
   });
 
-  const { snapshot: _snap, ...revisionWithoutSnapshot } = revision;
-  return ok(revisionWithoutSnapshot, 201);
+  // Return the revision without the snapshot body
+  const revision = await prisma.revision.findFirst({
+    where: { projectId: params.id, version },
+    select: {
+      id: true,
+      projectId: true,
+      orgId: true,
+      userId: true,
+      version: true,
+      message: true,
+      createdAt: true,
+      user: { select: { id: true, firstName: true, lastName: true } },
+    },
+  });
+
+  return ok(revision, 201);
 }
