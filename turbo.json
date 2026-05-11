@@ -16,6 +16,10 @@
     "type-check": {
       "dependsOn": ["^build"]
     },
+    "@woodcraft/db#build": {
+      "cache": false,
+      "outputs": []
+    },
     "db:generate": {
       "cache": false
     },
