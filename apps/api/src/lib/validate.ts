@@ -185,6 +185,61 @@ export const createRevisionSchema = z.object({
   message: z.string().max(500).optional(),
 });
 
+// ─── Hardware ────────────────────────────────────────────────────────────────
+
+export const HARDWARE_TYPES = [
+  "hinge",
+  "drawer_slide",
+  "handle",
+  "screw",
+  "cam_lock",
+  "shelf_pin",
+  "soft_close",
+  "other",
+] as const;
+
+export const createHardwareSchema = z.object({
+  name: z.string().min(1).max(255),
+  type: z.enum(HARDWARE_TYPES),
+  sku: z.string().max(100).optional(),
+  supplier: z.string().max(255).optional(),
+  costPerUnit: z.number().min(0),
+  metadata: z.record(z.any()).optional(),
+});
+
+export const updateHardwareSchema = createHardwareSchema.partial();
+
+// ─── Installer Feedback ───────────────────────────────────────────────────────
+
+export const createFeedbackSchema = z.object({
+  cabinetId: z.string().cuid().optional(),
+  reportedBy: z.string().min(1, "Reporter name is required").max(255),
+  severity: z.enum(["info", "warning", "error"]),
+  category: z.enum(["dimension_mismatch", "missing_part", "hardware_issue", "other"]),
+  description: z.string().min(1, "Description is required"),
+  photoUrls: z.array(z.string().url()).optional(),
+});
+
+export const updateFeedbackSchema = z.object({
+  resolved: z.boolean().optional(),
+  severity: z.enum(["info", "warning", "error"]).optional(),
+});
+
+// ─── Production Runs ──────────────────────────────────────────────────────────
+
+export const createProductionRunSchema = z.object({
+  scheduledAt: z.string().datetime().optional(),
+  notes: z.string().optional(),
+});
+
+export const updateProductionRunSchema = z.object({
+  status: z.enum(["scheduled", "in_progress", "complete", "cancelled"]).optional(),
+  scheduledAt: z.string().datetime().nullable().optional(),
+  startedAt: z.string().datetime().nullable().optional(),
+  completedAt: z.string().datetime().nullable().optional(),
+  notes: z.string().optional(),
+});
+
 // ─── Inferred types ───────────────────────────────────────────────────────────
 
 export type CreateClientInput = z.infer<typeof createClientSchema>;
@@ -201,3 +256,7 @@ export type CreateMachineProfileInput = z.infer<typeof createMachineProfileSchem
 export type CncExportInput = z.infer<typeof cncExportSchema>;
 export type CreateQuoteInput = z.infer<typeof createQuoteSchema>;
 export type UpdateQuoteInput = z.infer<typeof updateQuoteSchema>;
+export type CreateHardwareInput = z.infer<typeof createHardwareSchema>;
+export type CreateFeedbackInput = z.infer<typeof createFeedbackSchema>;
+export type CreateProductionRunInput = z.infer<typeof createProductionRunSchema>;
+export type UpdateProductionRunInput = z.infer<typeof updateProductionRunSchema>;

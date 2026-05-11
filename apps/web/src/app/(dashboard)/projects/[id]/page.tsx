@@ -62,23 +62,20 @@ export default function ProjectDetailPage() {
           </p>
           {project.description && <p className="text-gray-500 text-sm mt-2">{project.description}</p>}
         </div>
-        <div className="flex gap-2">
-          <Link
-            href={`/projects/${id}/cutlist`}
-            className="bg-surface-100 hover:bg-surface-200 text-gray-200 text-sm px-3 py-2 rounded-lg transition-colors"
-          >
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Link href={`/projects/${id}/cutlist`} className="bg-surface-100 hover:bg-surface-200 text-gray-200 text-sm px-3 py-2 rounded-lg transition-colors">
             Cut List
           </Link>
-          <Link
-            href={`/projects/${id}/quotes`}
-            className="bg-surface-100 hover:bg-surface-200 text-gray-200 text-sm px-3 py-2 rounded-lg transition-colors"
-          >
+          <Link href={`/projects/${id}/quotes`} className="bg-surface-100 hover:bg-surface-200 text-gray-200 text-sm px-3 py-2 rounded-lg transition-colors">
             Quotes {project._count.quotes > 0 && `(${project._count.quotes})`}
           </Link>
-          <Link
-            href={`/projects/${id}/editor`}
-            className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
+          <Link href={`/projects/${id}/production`} className="bg-surface-100 hover:bg-surface-200 text-gray-200 text-sm px-3 py-2 rounded-lg transition-colors">
+            Production
+          </Link>
+          <Link href={`/projects/${id}/feedback`} className="bg-surface-100 hover:bg-surface-200 text-gray-200 text-sm px-3 py-2 rounded-lg transition-colors">
+            Field Feedback
+          </Link>
+          <Link href={`/projects/${id}/editor`} className="bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
             Open Editor →
           </Link>
         </div>

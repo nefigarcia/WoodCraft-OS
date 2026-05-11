@@ -10,6 +10,7 @@ const NAV = [
   { href: "/projects", label: "Projects" },
   { href: "/clients", label: "Clients" },
   { href: "/materials", label: "Materials" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function DashboardLayout({
