@@ -1,9 +1,16 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
-import type { CabinetPart } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
+
+interface PartRow {
+  name: string;
+  width: { valueOf(): unknown } | number | string;
+  height: { valueOf(): unknown } | number | string;
+  thickness: { valueOf(): unknown } | number | string;
+  quantity: number;
+}
 
 type Params = { params: { id: string; roomId: string; cabinetId: string } };
 
@@ -137,7 +144,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         height: Number(cabinet.height),
         depth: Number(cabinet.depth),
         parameters: cabinet.parameters as Record<string, unknown>,
-        parts: cabinet.parts.map((p: CabinetPart) => ({
+        parts: cabinet.parts.map((p: PartRow) => ({
           name: p.name,
           width: Number(p.width),
           height: Number(p.height),
