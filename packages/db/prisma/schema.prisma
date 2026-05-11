@@ -1,0 +1,467 @@
+generator client {
+  provider = "prisma-client-js"
+  // Output to root node_modules so all workspace packages can import @prisma/client
+  output   = "../../../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. ORGANIZATIONS
+// Top-level multi-tenant boundary. Every data row is scoped by org_id.
+// ─────────────────────────────────────────────────────────────────────────────
+model Organization {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(255)
+  slug      String   @unique @db.VarChar(100)
+  plan      String   @default("starter") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users          User[]
+  clients        Client[]
+  projects       Project[]
+  materials      Material[]
+  hardware       Hardware[]
+  machineProfiles MachineProfile[]
+  productionRuns ProductionRun[]
+
+  @@map("organizations")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. USERS
+// ─────────────────────────────────────────────────────────────────────────────
+model User {
+  id           String    @id @default(cuid())
+  orgId        String    @map("org_id")
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  firstName    String    @map("first_name") @db.VarChar(100)
+  lastName     String    @map("last_name") @db.VarChar(100)
+  // role: owner | admin | designer | viewer
+  role         String    @default("designer") @db.VarChar(50)
+  // Hashed bcrypt of the refresh token — cleared on logout
+  refreshToken String?   @map("refresh_token") @db.Text
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  revisions Revision[]
+  quotes    Quote[]
+
+  @@index([orgId])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. CLIENTS
+// ─────────────────────────────────────────────────────────────────────────────
+model Client {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  name      String   @db.VarChar(255)
+  email     String?  @db.VarChar(255)
+  phone     String?  @db.VarChar(50)
+  address   String?  @db.Text
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@index([orgId])
+  @@map("clients")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. PROJECTS
+// ─────────────────────────────────────────────────────────────────────────────
+model Project {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  clientId    String   @map("client_id")
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  // status: draft | in_review | approved | in_production | complete
+  status      String   @default("draft") @db.VarChar(50)
+  metadata    Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org            Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  client         Client         @relation(fields: [clientId], references: [id])
+  rooms          Room[]
+  revisions      Revision[]
+  productionRuns ProductionRun[]
+  quotes         Quote[]
+
+  @@index([orgId])
+  @@index([clientId])
+  @@map("projects")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. ROOMS
+// Represents a physical room/space within a project (e.g. kitchen, bathroom).
+// ─────────────────────────────────────────────────────────────────────────────
+model Room {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  orgId     String   @map("org_id")
+  name      String   @db.VarChar(255)
+  // All measurements stored in millimeters as DECIMAL(10,4)
+  width     Decimal  @db.Decimal(10, 4)
+  height    Decimal  @db.Decimal(10, 4)
+  depth     Decimal  @db.Decimal(10, 4)
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cabinets Cabinet[]
+
+  @@index([projectId])
+  @@index([orgId])
+  @@map("rooms")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. CABINETS
+// A single cabinet unit within a room. Dimensions drive constraint propagation.
+// ─────────────────────────────────────────────────────────────────────────────
+model Cabinet {
+  id         String   @id @default(cuid())
+  roomId     String   @map("room_id")
+  orgId      String   @map("org_id")
+  // type: base | wall | tall | corner | island
+  type       String   @db.VarChar(50)
+  name       String   @db.VarChar(255)
+  width      Decimal  @db.Decimal(10, 4)
+  height     Decimal  @db.Decimal(10, 4)
+  depth      Decimal  @db.Decimal(10, 4)
+  posX       Decimal  @default(0) @map("pos_x") @db.Decimal(10, 4)
+  posY       Decimal  @default(0) @map("pos_y") @db.Decimal(10, 4)
+  posZ       Decimal  @default(0) @map("pos_z") @db.Decimal(10, 4)
+  // Stores all parametric config: doorCount, shelfCount, hingeType, etc.
+  parameters Json
+  materialId String?  @map("material_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  room              Room               @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  material          Material?          @relation(fields: [materialId], references: [id])
+  parts             CabinetPart[]
+  validationReports ValidationReport[]
+  cutlists          Cutlist[]
+
+  @@index([roomId])
+  @@index([orgId])
+  @@map("cabinets")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. CABINET PARTS
+// Auto-computed from cabinet dimensions. Updated whenever parent cabinet changes.
+// ─────────────────────────────────────────────────────────────────────────────
+model CabinetPart {
+  id        String   @id @default(cuid())
+  cabinetId String   @map("cabinet_id")
+  orgId     String   @map("org_id")
+  // name: left_panel | right_panel | top_panel | bottom_panel | shelf | door | etc.
+  name      String   @db.VarChar(100)
+  partType  String   @map("part_type") @db.VarChar(100)
+  width     Decimal  @db.Decimal(10, 4)
+  height    Decimal  @db.Decimal(10, 4)
+  thickness Decimal  @db.Decimal(10, 4)
+  quantity  Int      @default(1)
+  materialId String? @map("material_id")
+  // grainDir: horizontal | vertical | none
+  grainDir  String?  @map("grain_dir") @db.VarChar(20)
+  // JSON: { top, bottom, left, right } booleans
+  edgeBanding Json?  @map("edge_banding")
+  // Machine-specific cut parameters for CNC post-processing
+  cutParams Json?    @map("cut_params")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  cabinet  Cabinet   @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  material Material? @relation(fields: [materialId], references: [id])
+
+  @@index([cabinetId])
+  @@index([orgId])
+  @@map("cabinet_parts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. MATERIALS
+// Sheet goods catalogue per org (plywood, MDF, melamine, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+model Material {
+  id            String   @id @default(cuid())
+  orgId         String   @map("org_id")
+  name          String   @db.VarChar(255)
+  // type: plywood | mdf | solid_wood | melamine | laminate
+  type          String   @db.VarChar(50)
+  thickness     Decimal  @db.Decimal(10, 4)
+  sheetWidth    Decimal  @map("sheet_width") @db.Decimal(10, 4)
+  sheetHeight   Decimal  @map("sheet_height") @db.Decimal(10, 4)
+  costPerSheet  Decimal  @map("cost_per_sheet") @db.Decimal(10, 2)
+  supplier      String?  @db.VarChar(255)
+  sku           String?  @db.VarChar(100)
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  cabinets     Cabinet[]
+  cabinetParts CabinetPart[]
+
+  @@index([orgId])
+  @@map("materials")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. HARDWARE
+// Hardware catalogue per org (hinges, drawer slides, handles, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+model Hardware {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  name        String   @db.VarChar(255)
+  // type: hinge | drawer_slide | handle | screw | cam_lock | etc.
+  type        String   @db.VarChar(100)
+  sku         String?  @db.VarChar(100)
+  supplier    String?  @db.VarChar(255)
+  costPerUnit Decimal  @map("cost_per_unit") @db.Decimal(10, 4)
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("hardware")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. CUTLISTS
+// Generated cut list per cabinet — optimized sheet nesting + PDF/CSV export.
+// ─────────────────────────────────────────────────────────────────────────────
+model Cutlist {
+  id          String   @id @default(cuid())
+  cabinetId   String   @map("cabinet_id")
+  orgId       String   @map("org_id")
+  projectId   String   @map("project_id")
+  version     Int      @default(1)
+  // status: pending | optimized | exported
+  status      String   @default("pending") @db.VarChar(50)
+  pdfUrl      String?  @map("pdf_url") @db.Text
+  csvUrl      String?  @map("csv_url") @db.Text
+  // Array of { partName, width, height, thickness, qty, material, grainDir }
+  parts       Json
+  // Result from sheet nesting optimizer
+  nestingData Json?    @map("nesting_data")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  cabinet Cabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetId])
+  @@index([orgId])
+  @@index([projectId])
+  @@map("cutlists")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. CNC JOBS
+// Async G-code / DXF generation jobs processed by cnc-service on AWS.
+// ─────────────────────────────────────────────────────────────────────────────
+model CncJob {
+  id               String   @id @default(cuid())
+  orgId            String   @map("org_id")
+  projectId        String   @map("project_id")
+  machineProfileId String   @map("machine_profile_id")
+  // status: queued | processing | complete | failed
+  status           String   @default("queued") @db.VarChar(50)
+  gcodeUrl         String?  @map("gcode_url") @db.Text
+  dxfUrl           String?  @map("dxf_url") @db.Text
+  estimatedTime    Int?     @map("estimated_time")
+  errorMessage     String?  @map("error_message") @db.Text
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  machineProfile MachineProfile @relation(fields: [machineProfileId], references: [id])
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("cnc_jobs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. MACHINE PROFILES
+// CNC machine configuration — drives G-code post-processor selection.
+// ─────────────────────────────────────────────────────────────────────────────
+model MachineProfile {
+  id            String   @id @default(cuid())
+  orgId         String   @map("org_id")
+  name          String   @db.VarChar(255)
+  manufacturer  String   @db.VarChar(255)
+  model         String   @db.VarChar(255)
+  // type: cnc_router | panel_saw | edge_bander
+  type          String   @db.VarChar(50)
+  // Machine-specific settings: feed rates, tool diameters, offsets, spindle speed, etc.
+  config        Json
+  // Post-processor identifier, e.g. "holzher_dynestic_7507"
+  postProcessor String   @map("post_processor") @db.VarChar(100)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  cncJobs CncJob[]
+
+  @@index([orgId])
+  @@map("machine_profiles")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. VALIDATION REPORTS
+// AI-generated reports from ai-service: collision detection, clearance checks, etc.
+// ─────────────────────────────────────────────────────────────────────────────
+model ValidationReport {
+  id          String   @id @default(cuid())
+  cabinetId   String   @map("cabinet_id")
+  orgId       String   @map("org_id")
+  projectId   String   @map("project_id")
+  // status: pass | warning | fail
+  status      String   @db.VarChar(20)
+  // Array of { code, message, field, severity: "error" }
+  errors      Json?
+  // Array of { code, message, field, severity: "warning" }
+  warnings    Json?
+  aiModel     String?  @map("ai_model") @db.VarChar(100)
+  rawResponse Json?    @map("raw_response")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  cabinet Cabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetId])
+  @@index([orgId])
+  @@map("validation_reports")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. REVISIONS
+// Immutable snapshots of project state for undo/history/rollback.
+// ─────────────────────────────────────────────────────────────────────────────
+model Revision {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  orgId     String   @map("org_id")
+  userId    String   @map("user_id")
+  version   Int
+  // Full project JSON snapshot including all rooms, cabinets, and parts
+  snapshot  Json
+  message   String?  @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@index([orgId])
+  @@map("revisions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 15. PRODUCTION RUNS
+// Tracks shop floor execution of an approved project.
+// ─────────────────────────────────────────────────────────────────────────────
+model ProductionRun {
+  id          String    @id @default(cuid())
+  orgId       String    @map("org_id")
+  projectId   String    @map("project_id")
+  // status: scheduled | in_progress | complete | cancelled
+  status      String    @default("scheduled") @db.VarChar(50)
+  scheduledAt DateTime? @map("scheduled_at")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  notes       String?   @db.Text
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id])
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("production_runs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 16. QUOTES
+// Client-facing price quotes generated from the cut list + hardware BOM.
+// ─────────────────────────────────────────────────────────────────────────────
+model Quote {
+  id         String    @id @default(cuid())
+  orgId      String    @map("org_id")
+  projectId  String    @map("project_id")
+  userId     String    @map("user_id")
+  // status: draft | sent | accepted | rejected | expired
+  status     String    @default("draft") @db.VarChar(50)
+  validUntil DateTime? @map("valid_until")
+  // Array of { description, qty, unitPrice, total }
+  lineItems  Json      @map("line_items")
+  subtotal   Decimal   @db.Decimal(10, 2)
+  // taxRate stored as decimal, e.g. 0.13 for 13%
+  taxRate    Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 4)
+  taxAmount  Decimal   @map("tax_amount") @db.Decimal(10, 2)
+  total      Decimal   @db.Decimal(10, 2)
+  notes      String?   @db.Text
+  pdfUrl     String?   @map("pdf_url") @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("quotes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 17. INSTALLER FEEDBACK
+// Field reports from installers — drives AI improvement loop.
+// ─────────────────────────────────────────────────────────────────────────────
+model InstallerFeedback {
+  id          String    @id @default(cuid())
+  orgId       String    @map("org_id")
+  projectId   String    @map("project_id")
+  cabinetId   String?   @map("cabinet_id")
+  reportedBy  String    @map("reported_by") @db.VarChar(255)
+  // severity: info | warning | error
+  severity    String    @db.VarChar(20)
+  // category: dimension_mismatch | missing_part | hardware_issue | other
+  category    String    @db.VarChar(50)
+  description String    @db.Text
+  // Array of S3 URLs
+  photoUrls   Json?     @map("photo_urls")
+  resolved    Boolean   @default(false)
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("installer_feedback")
+}

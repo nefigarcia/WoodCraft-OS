@@ -1,0 +1,130 @@
+version: "3.9"
+
+# Covers AWS-hosted services + Redis only.
+# apps/web and apps/api are deployed to Vercel — NOT here.
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: woodcraft-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cad-service:
+    build:
+      context: ./services/cad-service
+      dockerfile: Dockerfile
+    container_name: woodcraft-cad
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - REDIS_URL=redis://redis:6379
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ai-service:
+    build:
+      context: ./services/ai-service
+      dockerfile: Dockerfile
+    container_name: woodcraft-ai
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+      - REDIS_URL=redis://redis:6379
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+      - VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION}
+      - GEMINI_MODEL=${GEMINI_MODEL}
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/app/service-account.json:ro
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  cnc-service:
+    build:
+      context: ./services/cnc-service
+      dockerfile: Dockerfile
+    container_name: woodcraft-cnc
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - PORT=8003
+      - REDIS_URL=redis://redis:6379
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  render-service:
+    build:
+      context: ./services/render-service
+      dockerfile: Dockerfile
+    container_name: woodcraft-render
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - PORT=8004
+      - REDIS_URL=redis://redis:6379
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  collab-service:
+    build:
+      context: ./services/collab-service
+      dockerfile: Dockerfile
+    container_name: woodcraft-collab
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      - PORT=8005
+      - REDIS_URL=redis://redis:6379
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "turbo build",
+  "installCommand": "npm install",
+  "projects": [
+    {
+      "name": "woodcraft-web",
+      "rootDirectory": "apps/web",
+      "framework": "nextjs",
+      "buildCommand": "cd ../.. && npx turbo build --filter=@woodcraft/web..."
+    },
+    {
+      "name": "woodcraft-api",
+      "rootDirectory": "apps/api",
+      "framework": "nextjs",
+      "buildCommand": "cd ../.. && npx turbo build --filter=@woodcraft/api..."
+    }
+  ]
+}
