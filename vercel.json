@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "buildCommand": "turbo build",
-  "installCommand": "npm install"
+  "comment": "This repo deploys as TWO separate Vercel projects. See apps/web/vercel.json and apps/api/vercel.json. Do NOT deploy from the repo root — point each project at its own subdirectory."
 }
