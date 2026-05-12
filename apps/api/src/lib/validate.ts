@@ -240,6 +240,20 @@ export const updateProductionRunSchema = z.object({
   notes: z.string().optional(),
 });
 
+// ─── Team / User Management ──────────────────────────────────────────────────
+
+export const inviteTeamMemberSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  role: z.enum(["admin", "designer", "viewer"]),
+  temporaryPassword: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export const updateTeamMemberSchema = z.object({
+  role: z.enum(["admin", "designer", "viewer"]),
+});
+
 // ─── Inferred types ───────────────────────────────────────────────────────────
 
 export type CreateClientInput = z.infer<typeof createClientSchema>;

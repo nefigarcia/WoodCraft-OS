@@ -3,6 +3,7 @@ import Link from "next/link";
 const SETTINGS = [
   { href: "/settings/machines", title: "Machine Profiles", desc: "CNC routers, panel saws, edge banders and their post-processors." },
   { href: "/settings/hardware", title: "Hardware Catalogue", desc: "Hinges, drawer slides, handles and other hardware used in quotes." },
+  { href: "/settings/team", title: "Team", desc: "Invite members and assign roles — admin, designer, or viewer." },
 ];
 
 export default function SettingsPage() {

@@ -29,6 +29,20 @@ function newItem(description = "", qty = 1, unitPrice = 0): LineItem {
 
 const LABOR_RATE_PER_PIECE = 8; // $8 default labor per cut piece
 
+interface BomLine {
+  name: string;
+  type: string;
+  qtyNeeded: number;
+  costPerUnit: number;
+  lineTotal: number;
+}
+
+interface BomResult {
+  lines: BomLine[];
+  totalCost: number;
+  unmatchedTypes: string[];
+}
+
 export default function NewQuotePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -40,6 +54,7 @@ export default function NewQuotePage() {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [populatingFromCutlist, setPopulatingFromCutlist] = useState(false);
+  const [addingBom, setAddingBom] = useState(false);
 
   // Auto-populate from cut list when navigated from the cut list page
   useEffect(() => {
@@ -79,6 +94,21 @@ export default function NewQuotePage() {
       .catch(console.error)
       .finally(() => setPopulatingFromCutlist(false));
   }, [id, fromCutlist]);
+
+  async function addBomLines() {
+    setAddingBom(true);
+    try {
+      const bom = await apiClient.get<BomResult>(`/projects/${id}/hardware-bom`);
+      if (bom.lines.length === 0) { alert("No hardware catalogue matches found. Add hardware to Settings → Hardware first."); return; }
+      const bomItems = bom.lines.map((l) => newItem(
+        `Hardware: ${l.name} (${l.type.replace(/_/g, " ")})${l.sku ? ` SKU:${l.sku}` : ""}`,
+        l.qtyNeeded,
+        l.costPerUnit
+      ));
+      setLineItems((prev) => [...prev, ...bomItems]);
+    } catch (err) { console.error(err); }
+    finally { setAddingBom(false); }
+  }
 
   const subtotal = lineItems.reduce((s, i) => s + i.qty * i.unitPrice, 0);
   const taxAmount = subtotal * taxRate;
@@ -129,13 +159,23 @@ export default function NewQuotePage() {
         <div className="bg-surface-50 border border-surface-200 rounded-xl overflow-hidden mb-4">
           <div className="px-4 py-3 border-b border-surface-200 flex items-center justify-between">
             <h3 className="text-white font-medium text-sm">Line Items</h3>
-            <button
-              type="button"
-              onClick={() => setLineItems((p) => [...p, newItem()])}
-              className="text-brand-400 hover:text-brand-300 text-sm transition-colors"
-            >
-              + Add line
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => void addBomLines()}
+                disabled={addingBom}
+                className="text-gray-400 hover:text-white text-sm transition-colors disabled:opacity-50"
+              >
+                {addingBom ? "Loading BOM…" : "+ Hardware BOM"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLineItems((p) => [...p, newItem()])}
+                className="text-brand-400 hover:text-brand-300 text-sm transition-colors"
+              >
+                + Add line
+              </button>
+            </div>
           </div>
 
           <div className="divide-y divide-surface-200">
