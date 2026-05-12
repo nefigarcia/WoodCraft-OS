@@ -13,18 +13,113 @@ body {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ─── Scrollbar ─────────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #111214; }
+::-webkit-scrollbar-thumb { background: #2E3038; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3A4050; }
+
+/* ─── Pulse dot (active status) ─────────────────────────────────────────────── */
+
+.pulse-dot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-::-webkit-scrollbar-track {
-  background: #1a1a1a;
+.pulse-dot::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  animation: ring-pulse 2s ease-out infinite;
 }
-::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
-  border-radius: 3px;
+
+@keyframes ring-pulse {
+  0%   { transform: scale(0.8); opacity: 0.6; }
+  70%  { transform: scale(1.8); opacity: 0; }
+  100% { opacity: 0; }
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #555;
+
+/* ─── Status dot colours ─────────────────────────────────────────────────────── */
+
+.status-dot-production {
+  background: #E8C547;
+  animation: production-ping 1.5s ease-in-out infinite;
+}
+
+@keyframes production-ping {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232,197,71,0.5); }
+  50%       { box-shadow: 0 0 0 5px rgba(232,197,71,0); }
+}
+
+/* ─── Stat card hover shimmer ────────────────────────────────────────────────── */
+
+.stat-card {
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+}
+.stat-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255,255,255,0.025) 50%,
+    transparent 60%
+  );
+  background-size: 300% 100%;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.stat-card:hover::after {
+  opacity: 1;
+  animation: card-shimmer 0.7s ease forwards;
+}
+
+@keyframes card-shimmer {
+  0%   { background-position: 200% center; }
+  100% { background-position: -100% center; }
+}
+
+/* ─── Nav active indicator ───────────────────────────────────────────────────── */
+
+.nav-active-bar {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 0;
+  background: #E8C547;
+  border-radius: 1px;
+  transition: height 0.25s ease;
+}
+.nav-item-active .nav-active-bar {
+  height: 60%;
+}
+
+/* ─── Fade-up entrance (used by hero phases on key change) ───────────────────── */
+
+.enter-fade-up {
+  animation: enter-fade 0.5s ease both;
+}
+
+@keyframes enter-fade {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Landing page — no overflow clip on body ────────────────────────────────── */
+
+html, body {
+  scroll-behavior: smooth;
 }

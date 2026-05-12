@@ -32,6 +32,7 @@ const LABOR_RATE_PER_PIECE = 8; // $8 default labor per cut piece
 interface BomLine {
   name: string;
   type: string;
+  sku?: string;
   qtyNeeded: number;
   costPerUnit: number;
   lineTotal: number;
