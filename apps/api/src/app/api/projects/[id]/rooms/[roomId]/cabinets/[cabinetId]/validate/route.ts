@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from "@google/genai";
 
-export const maxDuration = 60;
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
@@ -151,7 +150,6 @@ Check for: dimensions outside standard ranges, cabinet exceeding room size, part
           allowedFunctionNames: ["report_validation"],
         },
       },
-      thinkingConfig: { thinkingBudget: 0 },
     },
   });
 
