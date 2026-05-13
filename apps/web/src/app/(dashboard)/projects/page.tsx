@@ -87,8 +87,8 @@ export default function ProjectsPage() {
               </div>
 
               <div className="flex text-xs text-gray-600 gap-3 mb-4">
-                <span>{p._count.rooms} room{p._count.rooms !== 1 ? "s" : ""}</span>
-                <span>{p._count.quotes} quote{p._count.quotes !== 1 ? "s" : ""}</span>
+                <span>{p._count?.rooms ?? 0} room{(p._count?.rooms ?? 0) !== 1 ? "s" : ""}</span>
+                <span>{p._count?.quotes ?? 0} quote{(p._count?.quotes ?? 0) !== 1 ? "s" : ""}</span>
                 <span>Updated {new Date(p.updatedAt).toLocaleDateString()}</span>
               </div>
 

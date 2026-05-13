@@ -29,30 +29,29 @@ async function doRefresh(
 
 function buildHeaders(
   token: string | null,
-  extra?: Record<string, string>
+  extra?: Record<string, string>,
+  omitContentType = false
 ): Record<string, string> {
   return {
-    "Content-Type": "application/json",
+    ...(omitContentType ? {} : { "Content-Type": "application/json" }),
     ...extra,
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
-async function request<T>(
+async function requestRaw(
   path: string,
-  options: RequestInit = {}
-): Promise<T> {
+  options: RequestInit = {},
+  omitContentType = false
+): Promise<Response> {
   const { useAuthStore } = await import("@/store/auth");
   const store = useAuthStore.getState();
   const { setTokens, logout } = store;
   const extraHeaders = options.headers as Record<string, string> | undefined;
 
-  // Proactively refresh if we have a refresh token but no access token
   if (!store.accessToken && store.refreshToken) {
     if (!refreshPromise) {
-      refreshPromise = doRefresh(store.refreshToken).finally(() => {
-        refreshPromise = null;
-      });
+      refreshPromise = doRefresh(store.refreshToken).finally(() => { refreshPromise = null; });
     }
     try {
       const tokens = await refreshPromise;
@@ -63,29 +62,23 @@ async function request<T>(
     }
   }
 
-  // Read the (possibly just-refreshed) access token
   const accessToken = useAuthStore.getState().accessToken;
 
   let res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: buildHeaders(accessToken, extraHeaders),
+    headers: buildHeaders(accessToken, extraHeaders, omitContentType),
   });
 
   if (res.status === 401) {
-    // Re-read fresh state — a concurrent request may have already refreshed
     const fresh = useAuthStore.getState();
-
     if (fresh.accessToken && fresh.accessToken !== accessToken) {
-      // Another request already got a new token — retry with it
       res = await fetch(`${API_BASE}${path}`, {
         ...options,
-        headers: buildHeaders(fresh.accessToken, extraHeaders),
+        headers: buildHeaders(fresh.accessToken, extraHeaders, omitContentType),
       });
     } else if (fresh.refreshToken) {
       if (!refreshPromise) {
-        refreshPromise = doRefresh(fresh.refreshToken).finally(() => {
-          refreshPromise = null;
-        });
+        refreshPromise = doRefresh(fresh.refreshToken).finally(() => { refreshPromise = null; });
       }
       try {
         const tokens = await refreshPromise;
@@ -93,7 +86,7 @@ async function request<T>(
         onTokenRefreshed?.(tokens.accessToken);
         res = await fetch(`${API_BASE}${path}`, {
           ...options,
-          headers: buildHeaders(tokens.accessToken, extraHeaders),
+          headers: buildHeaders(tokens.accessToken, extraHeaders, omitContentType),
         });
       } catch {
         logout();
@@ -102,12 +95,31 @@ async function request<T>(
     }
   }
 
+  return res;
+}
+
+async function requestFile<T>(path: string, body: FormData): Promise<T> {
+  const res = await requestRaw(path, { method: "POST", body }, true);
   if (!res.ok) {
     const err = (await res.json()) as { error: string; code?: string };
     throw new ApiError(err.error, res.status, err.code);
   }
-
   return res.json() as Promise<T>;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await requestRaw(path, options);
+  if (!res.ok) {
+    const err = (await res.json()) as { error: string; code?: string };
+    throw new ApiError(err.error, res.status, err.code);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function requestBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const res = await requestRaw(path, options);
+  if (!res.ok) throw new ApiError(`Request failed: ${res.status}`, res.status);
+  return res.blob();
 }
 
 export const apiClient = {
@@ -119,6 +131,8 @@ export const apiClient = {
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  download: (path: string) => requestBlob(path),
+  postFile: <T>(path: string, body: FormData) => requestFile<T>(path, body),
 };
 
 export { ApiError };

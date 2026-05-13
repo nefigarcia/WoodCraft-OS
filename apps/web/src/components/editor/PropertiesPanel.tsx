@@ -1,17 +1,23 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useEditorStore } from "@/store/editor";
 import { useDebounce } from "@/lib/useDebounce";
+import { apiClient } from "@/lib/api";
+import { useRef } from "react";
 import type { Cabinet } from "@woodcraft/shared";
+import type { ValidationReport, DrawingAnalysis } from "@/hooks/useCabinets";
 
 interface Props {
   cabinet: Cabinet | undefined;
   saving: boolean;
   validating: boolean;
+  validationReport?: ValidationReport;
   onSave: (id: string, patch: Record<string, unknown>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onValidate: (id: string) => Promise<void>;
+  onPreview: (id: string) => void;
+  onAnalyzeDrawing: (file: File) => Promise<DrawingAnalysis | null>;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
@@ -67,9 +73,15 @@ function ParamInput({
   );
 }
 
-export function PropertiesPanel({ cabinet, saving, validating, onSave, onDelete, onValidate, mobileOpen, onMobileClose }: Props) {
+export function PropertiesPanel({ cabinet, saving, validating, validationReport, onSave, onDelete, onValidate, onPreview, onAnalyzeDrawing, mobileOpen, onMobileClose }: Props) {
   const updateCabinet = useEditorStore((s) => s.updateCabinet);
   const selectCabinet = useEditorStore((s) => s.selectCabinet);
+  const projectId = useEditorStore((s) => s.projectId);
+  const [downloadingStep, setDownloadingStep] = useState(false);
+  const [downloadingDrawing, setDownloadingDrawing] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [drawingAnalysis, setDrawingAnalysis] = useState<DrawingAnalysis | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fire API call 800ms after the last keystroke — constraint propagation happens server-side
   const debouncedSave = useDebounce(
@@ -135,6 +147,70 @@ export function PropertiesPanel({ cabinet, saving, validating, onSave, onDelete,
   }
 
   const params = (cabinet.parameters ?? {}) as Record<string, unknown>;
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setDrawingAnalysis(null);
+    setAnalyzing(true);
+    const result = await onAnalyzeDrawing(file);
+    setAnalyzing(false);
+    if (result) setDrawingAnalysis(result);
+  }
+
+  async function applyDrawingAnalysis() {
+    if (!drawingAnalysis || !cabinet) return;
+    const patch = {
+      width: drawingAnalysis.width,
+      height: drawingAnalysis.height,
+      depth: drawingAnalysis.depth,
+      parameters: drawingAnalysis.parameters,
+    };
+    updateCabinet(cabinet.id, patch);
+    await onSave(cabinet.id, patch);
+    setDrawingAnalysis(null);
+  }
+
+  async function downloadDrawing() {
+    if (!projectId || !cabinet) return;
+    setDownloadingDrawing(true);
+    try {
+      const blob = await apiClient.download(
+        `/projects/${projectId}/rooms/${cabinet.roomId}/cabinets/${cabinet.id}/drawing`
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `drawing_${cabinet.name ?? cabinet.id}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent — cad-service may not be running
+    } finally {
+      setDownloadingDrawing(false);
+    }
+  }
+
+  async function downloadStep() {
+    if (!projectId || !cabinet) return;
+    setDownloadingStep(true);
+    try {
+      const blob = await apiClient.download(
+        `/projects/${projectId}/rooms/${cabinet.roomId}/cabinets/${cabinet.id}/step`
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${cabinet.name ?? cabinet.id}.step`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent — cad-service may not be running
+    } finally {
+      setDownloadingStep(false);
+    }
+  }
 
   return (
     <aside
@@ -237,14 +313,226 @@ export function PropertiesPanel({ cabinet, saving, validating, onSave, onDelete,
         )}
       </div>
 
+      {/* Hidden file input for drawing upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+        className="hidden"
+        onChange={(e) => { void handleFileChange(e); }}
+      />
+
+      {/* Drawing analysis result */}
+      {(analyzing || drawingAnalysis) && (
+        <div className="mx-4 mb-0 rounded-lg border border-surface-300 overflow-hidden">
+          {analyzing ? (
+            <div className="flex flex-col items-center gap-3 px-4 py-5">
+              {/* Pulsing sparkle icon */}
+              <div className="relative flex items-center justify-center w-9 h-9">
+                <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
+                <svg
+                  className="relative w-5 h-5 text-brand-400 animate-pulse"
+                  viewBox="0 0 24 24" fill="currentColor"
+                >
+                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+                </svg>
+              </div>
+              <div className="text-center">
+                <p className="text-white text-xs font-medium">Analyzing drawing…</p>
+                <p className="text-gray-500 text-xs mt-0.5">Gemini is extracting dimensions</p>
+              </div>
+              {/* Animated dots */}
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="w-1.5 h-1.5 rounded-full bg-brand-500"
+                    style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : drawingAnalysis ? (
+            <div className="p-3">
+              <div className="flex items-center gap-2 mb-2.5">
+                <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14,2 14,8 20,8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+                <span className="text-gray-400 text-xs uppercase tracking-wider">Drawing Analysis</span>
+                <span
+                  className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    drawingAnalysis.confidence === "high"
+                      ? "bg-green-900/50 text-green-400"
+                      : drawingAnalysis.confidence === "medium"
+                      ? "bg-yellow-900/50 text-yellow-400"
+                      : "bg-red-900/50 text-red-400"
+                  }`}
+                >
+                  {drawingAnalysis.confidence.toUpperCase()}
+                </span>
+              </div>
+
+              <div className="space-y-1 mb-2.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Type</span>
+                  <span className="text-gray-300 capitalize">{drawingAnalysis.type}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">W × H × D</span>
+                  <span className="text-gray-300 tabular-nums">
+                    {drawingAnalysis.width} × {drawingAnalysis.height} × {drawingAnalysis.depth} mm
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Doors / Drawers / Shelves</span>
+                  <span className="text-gray-300 tabular-nums">
+                    {drawingAnalysis.parameters.doorCount} / {drawingAnalysis.parameters.drawerCount} / {drawingAnalysis.parameters.shelfCount}
+                  </span>
+                </div>
+              </div>
+
+              {drawingAnalysis.notes && (
+                <p className="text-gray-500 text-xs leading-snug mb-3 italic">
+                  {drawingAnalysis.notes}
+                </p>
+              )}
+
+              {drawingAnalysis.confidence !== "high" && (
+                <p className="text-yellow-600 text-xs leading-snug mb-3">
+                  Dimensions are estimated — verify before saving.
+                </p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { void applyDrawingAnalysis(); }}
+                  className="flex-1 text-xs font-medium py-1.5 rounded-md transition-colors"
+                  style={{ background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5a" }}
+                >
+                  Apply to Cabinet
+                </button>
+                <button
+                  onClick={() => setDrawingAnalysis(null)}
+                  className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-md hover:bg-surface-100 transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* AI thinking / validation report */}
+      {(validating || validationReport) && (
+        <div className="mx-4 mb-4 rounded-lg border border-surface-300 overflow-hidden">
+          {validating ? (
+            <div className="flex flex-col items-center gap-3 px-4 py-5">
+              {/* Pulsing sparkle icon */}
+              <div className="relative flex items-center justify-center w-9 h-9">
+                <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
+                <svg
+                  className="relative w-5 h-5 text-brand-400 animate-pulse"
+                  viewBox="0 0 24 24" fill="currentColor"
+                >
+                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+                </svg>
+              </div>
+              <div className="text-center">
+                <p className="text-white text-xs font-medium">Analyzing cabinet…</p>
+                <p className="text-gray-500 text-xs mt-0.5">Gemini is reviewing your design</p>
+              </div>
+              {/* Animated dots */}
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="w-1.5 h-1.5 rounded-full bg-brand-500"
+                    style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : validationReport ? (
+            <div className="p-3">
+              <div className="flex items-center gap-2 mb-2.5">
+                <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+                </svg>
+                <span className="text-gray-400 text-xs uppercase tracking-wider">AI Validation</span>
+                <span
+                  className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    validationReport.status === "pass"
+                      ? "bg-green-900/50 text-green-400"
+                      : validationReport.status === "warning"
+                      ? "bg-yellow-900/50 text-yellow-400"
+                      : "bg-red-900/50 text-red-400"
+                  }`}
+                >
+                  {validationReport.status.toUpperCase()}
+                </span>
+              </div>
+              {validationReport.errors.length === 0 && validationReport.warnings.length === 0 && (
+                <p className="text-green-500 text-xs">No issues found.</p>
+              )}
+              <div className="space-y-1.5">
+                {validationReport.errors.map((e, i) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-red-500 text-xs mt-0.5 flex-shrink-0">✕</span>
+                    <p className="text-red-400 text-xs leading-snug">{e.message}</p>
+                  </div>
+                ))}
+                {validationReport.warnings.map((w, i) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-yellow-500 text-xs mt-0.5 flex-shrink-0">⚠</span>
+                    <p className="text-yellow-400 text-xs leading-snug">{w.message}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {/* Footer actions */}
       <div className="p-3 border-t border-surface-200 flex flex-col gap-2">
+        <button
+          onClick={() => onPreview(cabinet.id)}
+          className="w-full text-sm font-medium py-1.5 rounded-md transition-colors"
+          style={{ background: "#1a2a1a", color: "#4ade80", border: "1px solid #1e3a1e" }}
+        >
+          Preview 3D
+        </button>
         <button
           onClick={() => void onValidate(cabinet.id)}
           disabled={validating}
           className="w-full text-sm bg-surface-200 hover:bg-surface-300 disabled:opacity-50 text-gray-200 py-1.5 rounded-md transition-colors"
         >
-          {validating ? "Validating…" : "Validate with AI"}
+          {validating ? "Thinking…" : "Validate with AI"}
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={analyzing}
+          className="w-full text-sm bg-surface-200 hover:bg-surface-300 disabled:opacity-50 text-gray-200 py-1.5 rounded-md transition-colors"
+        >
+          {analyzing ? "Analyzing…" : "Analyze Drawing with AI"}
+        </button>
+        <button
+          onClick={() => void downloadDrawing()}
+          disabled={downloadingDrawing}
+          className="w-full text-sm bg-surface-100 hover:bg-surface-200 disabled:opacity-50 text-gray-300 py-1.5 rounded-md transition-colors"
+        >
+          {downloadingDrawing ? "Generating…" : "Shop Drawing (.svg)"}
+        </button>
+        <button
+          onClick={() => void downloadStep()}
+          disabled={downloadingStep}
+          className="w-full text-sm bg-surface-100 hover:bg-surface-200 disabled:opacity-50 text-gray-300 py-1.5 rounded-md transition-colors"
+        >
+          {downloadingStep ? "Generating…" : "3D Model (.step)"}
         </button>
         <button
           onClick={async () => {

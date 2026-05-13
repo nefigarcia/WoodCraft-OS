@@ -54,7 +54,10 @@ export async function POST(req: NextRequest) {
 
   const project = await prisma.project.create({
     data: { ...parsed.data, orgId },
-    include: { client: { select: { id: true, name: true, email: true } } },
+    include: {
+      client: { select: { id: true, name: true, email: true } },
+      _count: { select: { rooms: true, quotes: true } },
+    },
   });
 
   return ok(project, 201);

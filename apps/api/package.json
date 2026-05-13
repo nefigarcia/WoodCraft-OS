@@ -12,13 +12,13 @@
     "db:generate": "cd ../../packages/db && prisma generate"
   },
   "dependencies": {
+    "@google/genai": "^2.2.0",
     "@prisma/client": "^5.20.0",
     "@woodcraft/db": "*",
     "@woodcraft/shared": "*",
     "bcryptjs": "^2.4.3",
     "jose": "^5.10.0",
     "next": "14.2.16",
-    "openai": "^6.37.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^3.23.8"

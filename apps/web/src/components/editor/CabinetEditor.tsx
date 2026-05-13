@@ -7,6 +7,7 @@ import { useEditorStore } from "@/store/editor";
 import { useProject, useRoomCabinets } from "@/hooks/useProject";
 import { useCabinets } from "@/hooks/useCabinets";
 import { PropertiesPanel } from "./PropertiesPanel";
+import { CabinetPreviewModal } from "./CabinetPreviewModal";
 import { RoomSelector } from "./RoomSelector";
 import { AddCabinetButton } from "./AddCabinetButton";
 import { useCollab } from "@/hooks/useCollab";
@@ -48,11 +49,12 @@ export default function CabinetEditor({ projectId }: Props) {
   const { project, loading: projectLoading } = useProject(projectId);
   const { selectedRoomId, cabinets, selectedCabinetId, selectCabinet } = useEditorStore();
   const { loading: roomLoading }                                        = useRoomCabinets(projectId, selectedRoomId);
-  const { save, remove, validate, saving, validating }                  = useCabinets(projectId);
+  const { save, remove, validate, analyzeDrawing, saving, validating, validationReports } = useCabinets(projectId);
   const { broadcast: _broadcast }                                       = useCollab(projectId);
 
-  const [leftOpen,  setLeftOpen]  = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
+  const [leftOpen,   setLeftOpen]   = useState(false);
+  const [rightOpen,  setRightOpen]  = useState(false);
+  const [previewId,  setPreviewId]  = useState<string | null>(null);
 
   const selectedCabinet = cabinets.find((c) => c.id === selectedCabinetId);
   const isLoading       = projectLoading || roomLoading;
@@ -229,12 +231,26 @@ export default function CabinetEditor({ projectId }: Props) {
         cabinet={selectedCabinet}
         saving={saving}
         validating={validating}
+        validationReport={selectedCabinetId ? validationReports[selectedCabinetId] : undefined}
         onSave={save}
         onDelete={remove}
         onValidate={validate}
+        onAnalyzeDrawing={analyzeDrawing}
+        onPreview={setPreviewId}
         mobileOpen={rightOpen}
         onMobileClose={() => setRightOpen(false)}
       />
+
+      {previewId && (() => {
+        const cab = cabinets.find((c) => c.id === previewId);
+        return cab ? (
+          <CabinetPreviewModal
+            cabinet={cab}
+            projectId={projectId}
+            onClose={() => setPreviewId(null)}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }

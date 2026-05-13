@@ -969,10 +969,10 @@ function Footer({ onCTA }: { onCTA: () => void }) {
           style={{ paddingTop: 24, borderTop: `1px solid ${BORDER}` }}
         >
           <p style={{ fontSize: 10, color: "#2E3038", letterSpacing: "1px" }}>
-            © 2026 WOODCRAFT OS. ALL RIGHTS RESERVED.
+            © 2026 ROSYS.IM. ALL RIGHTS RESERVED.
           </p>
           <p style={{ fontSize: 10, color: DIM }}>
-            Designed for cabinet shops, by people who build cabinets.
+            rosys.im · (828) 827-3145
           </p>
         </div>
       </div>

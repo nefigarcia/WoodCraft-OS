@@ -197,6 +197,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             ⏻
           </button>
         </div>
+
+        {/* Copyright */}
+        <div className="px-3 py-2" style={{ borderTop: "1px solid #1E2226" }}>
+          <p className="text-[9px] text-center" style={{ color: "#2E3038", letterSpacing: "0.5px" }}>
+            © 2026 rosys.im · (828) 827-3145
+          </p>
+        </div>
       </aside>
 
       {/* ── Main column ───────────────────────────────────────────────────── */}

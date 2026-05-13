@@ -30,6 +30,29 @@ async function post<T>(baseUrl: string, path: string, body: unknown): Promise<T>
   }
 }
 
+async function postBytes(baseUrl: string, path: string, body: unknown): Promise<ArrayBuffer> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-api-key": INTERNAL_KEY,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`${res.status}: ${err}`);
+    }
+    return res.arrayBuffer();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── CAD Service Types ────────────────────────────────────────────────────────
 
 export interface CadGeometryRequest {
@@ -118,6 +141,12 @@ export interface CncGcodeResponse {
 export const cadService = {
   computeGeometry: (req: CadGeometryRequest) =>
     post<CadGeometryResponse>(CAD_URL, "/cabinets/geometry", req),
+  exportStep: (cabinetId: string, req: CadGeometryRequest) =>
+    postBytes(CAD_URL, `/cabinets/${cabinetId}/step`, req),
+  exportDrawing: (cabinetId: string, req: CadGeometryRequest) =>
+    postBytes(CAD_URL, `/cabinets/${cabinetId}/drawing`, req),
+  exportMesh: (cabinetId: string, req: CadGeometryRequest) =>
+    postBytes(CAD_URL, `/cabinets/${cabinetId}/mesh`, req),
 };
 
 export const aiService = {

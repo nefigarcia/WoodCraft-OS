@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import OpenAI from "openai";
+import { GoogleGenAI, Type, FunctionCallingConfigMode } from "@google/genai";
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
@@ -27,13 +27,36 @@ interface ValidationResult {
   warnings: ValidationIssue[];
 }
 
-// Lazy — instantiated on first request, not at module load time.
-// Module-level OpenAI() throws during Next.js static build when OPENAI_API_KEY is unset.
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getGenAI() {
+  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 }
 
-async function validateWithOpenAI(
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  delayMs = 800
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const isQuotaError =
+        err instanceof Error && err.message.includes("quota");
+      const isRetryable =
+        !isQuotaError &&
+        err instanceof Error &&
+        (err.message.includes("429") ||
+          err.message.includes("503") ||
+          err.message.includes("502") ||
+          err.message.includes("UNAVAILABLE") ||
+          err.message.includes("timeout"));
+      if (attempt >= retries || !isRetryable) throw err;
+      await new Promise((r) => setTimeout(r, delayMs * 2 ** attempt));
+    }
+  }
+}
+
+async function validateWithGemini(
   cabinet: {
     type: string;
     width: number;
@@ -45,17 +68,16 @@ async function validateWithOpenAI(
   roomWidth: number,
   roomHeight: number
 ): Promise<ValidationResult> {
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a cabinet manufacturing expert. Validate cabinet designs and identify structural, dimensional, or manufacturing issues. Be concise — only report real issues.",
-      },
+  const ai = getGenAI();
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [
       {
         role: "user",
-        content: `Validate this cabinet design:
+        parts: [
+          {
+            text: `You are a cabinet manufacturing expert. Validate this cabinet design and call the report_validation function with the results. Only report real issues.
 
 Cabinet:
 - Type: ${cabinet.type} (base | wall | tall | corner | island)
@@ -69,57 +91,76 @@ Room constraints:
 - Height: ${roomHeight}mm
 
 Check for: dimensions outside standard ranges, cabinet exceeding room size, parts inconsistent with cabinet envelope, material thickness outside 15–19mm, missing structural parts, clearance or manufacturing concerns.`,
+          },
+        ],
       },
     ],
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "report_validation",
-          description: "Report cabinet validation results",
-          parameters: {
-            type: "object",
-            properties: {
-              status: { type: "string", enum: ["pass", "warning", "fail"] },
-              errors: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    code: { type: "string" },
-                    message: { type: "string" },
-                    field: { type: "string", nullable: true },
-                    severity: { type: "string", enum: ["error"] },
+    config: {
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: "report_validation",
+              description: "Report cabinet validation results",
+              parameters: {
+                type: Type.OBJECT,
+                properties: {
+                  status: {
+                    type: Type.STRING,
+                    enum: ["pass", "warning", "fail"],
+                    description: "Overall validation status",
                   },
-                  required: ["code", "message", "field", "severity"],
-                },
-              },
-              warnings: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    code: { type: "string" },
-                    message: { type: "string" },
-                    field: { type: "string", nullable: true },
-                    severity: { type: "string", enum: ["warning"] },
+                  errors: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        code: { type: Type.STRING },
+                        message: { type: Type.STRING },
+                        field: { type: Type.STRING },
+                        severity: { type: Type.STRING, enum: ["error"] },
+                      },
+                      required: ["code", "message", "field", "severity"],
+                    },
                   },
-                  required: ["code", "message", "field", "severity"],
+                  warnings: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        code: { type: Type.STRING },
+                        message: { type: Type.STRING },
+                        field: { type: Type.STRING },
+                        severity: { type: Type.STRING, enum: ["warning"] },
+                      },
+                      required: ["code", "message", "field", "severity"],
+                    },
+                  },
                 },
+                required: ["status", "errors", "warnings"],
               },
             },
-            required: ["status", "errors", "warnings"],
-          },
+          ],
+        },
+      ],
+      toolConfig: {
+        functionCallingConfig: {
+          mode: FunctionCallingConfigMode.ANY,
+          allowedFunctionNames: ["report_validation"],
         },
       },
-    ],
-    tool_choice: { type: "function", function: { name: "report_validation" } },
+    },
   });
 
-  const toolCall = response.choices[0]?.message.tool_calls?.[0];
-  if (!toolCall || toolCall.type !== "function") throw new Error("OpenAI did not return a tool call");
+  const functionCall = response.candidates?.[0]?.content?.parts?.find(
+    (p) => p.functionCall
+  )?.functionCall;
 
-  return JSON.parse(toolCall.function.arguments) as ValidationResult;
+  if (!functionCall || functionCall.name !== "report_validation") {
+    throw new Error("Gemini did not return a function call");
+  }
+
+  return functionCall.args as unknown as ValidationResult;
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
@@ -141,26 +182,28 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   let result: ValidationResult;
   try {
-    result = await validateWithOpenAI(
-      {
-        type: cabinet.type,
-        width: Number(cabinet.width),
-        height: Number(cabinet.height),
-        depth: Number(cabinet.depth),
-        parameters: cabinet.parameters as Record<string, unknown>,
-        parts: cabinet.parts.map((p: PartRow) => ({
-          name: p.name,
-          width: Number(p.width),
-          height: Number(p.height),
-          thickness: Number(p.thickness),
-          quantity: p.quantity,
-        })),
-      },
-      Number(cabinet.room.width),
-      Number(cabinet.room.height)
+    result = await withRetry(() =>
+      validateWithGemini(
+        {
+          type: cabinet.type,
+          width: Number(cabinet.width),
+          height: Number(cabinet.height),
+          depth: Number(cabinet.depth),
+          parameters: cabinet.parameters as Record<string, unknown>,
+          parts: cabinet.parts.map((p: PartRow) => ({
+            name: p.name,
+            width: Number(p.width),
+            height: Number(p.height),
+            thickness: Number(p.thickness),
+            quantity: p.quantity,
+          })),
+        },
+        Number(cabinet.room.width),
+        Number(cabinet.room.height)
+      )
     );
   } catch (err) {
-    console.error("[validate] OpenAI error:", err);
+    console.error("[validate] Gemini error:", err);
     return apiError("AI validation service is unavailable. Try again later.", 503, "AI_UNAVAILABLE");
   }
 
@@ -172,7 +215,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       status: result.status,
       errors: result.errors as any,
       warnings: result.warnings as any,
-      aiModel: "gpt-4o-mini",
+      aiModel: "gemini-2.5-flash",
       rawResponse: result as any,
     },
   });
