@@ -513,6 +513,17 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         >
           {validating ? "Thinking…" : "Validate with AI"}
         </button>
+        {validating && (
+          <div className="md:hidden flex items-center justify-center gap-2 py-1">
+            <div className="relative w-4 h-4 flex-shrink-0">
+              <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
+              <svg className="relative w-4 h-4 text-brand-400 animate-pulse" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+              </svg>
+            </div>
+            <p className="text-xs text-gray-400">Gemini is reviewing your design</p>
+          </div>
+        )}
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={analyzing}
