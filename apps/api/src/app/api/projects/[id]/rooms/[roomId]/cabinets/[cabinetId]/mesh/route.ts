@@ -4,6 +4,8 @@ import { cadService } from "@/lib/services";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 
+export const maxDuration = 60;
+
 type Params = { params: { id: string; roomId: string; cabinetId: string } };
 
 export async function GET(req: NextRequest, { params }: Params) {

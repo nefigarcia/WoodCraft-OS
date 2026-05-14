@@ -5,7 +5,7 @@ const CAD_URL = process.env.CAD_SERVICE_URL ?? "http://localhost:8001";
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8002";
 const CNC_URL = process.env.CNC_SERVICE_URL ?? "http://localhost:8003";
 const INTERNAL_KEY = process.env.INTERNAL_API_KEY ?? "";
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 30_000;
 
 async function post<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
   const controller = new AbortController();
