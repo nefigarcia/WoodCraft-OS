@@ -32,7 +32,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       parameters: (cabinet.parameters ?? {}) as Record<string, unknown>,
       material_thickness: 18,
     });
-  } catch {
+  } catch (err) {
+    console.error("[mesh] CAD service error:", err);
     return apiError("Mesh generation failed — ensure cad-service is running", 503);
   }
 
