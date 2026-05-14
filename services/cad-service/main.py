@@ -26,8 +26,8 @@ app.add_middleware(
 async def verify_internal_key(request: Request, call_next):
     if request.url.path in ("/health", "/docs", "/redoc", "/openapi.json"):
         return await call_next(request)
-    key = request.headers.get("x-internal-api-key")
-    if key != settings.internal_api_key:
+    key = (request.headers.get("x-internal-api-key") or "").strip()
+    if key != settings.internal_api_key.strip():
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     return await call_next(request)
 
