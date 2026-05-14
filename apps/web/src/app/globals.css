@@ -51,6 +51,18 @@ body {
   100% { opacity: 0; }
 }
 
+/* ─── Dot breathe (disappear / reappear glow) ───────────────────────────────── */
+
+@keyframes dot-breathe {
+  0%, 100% { opacity: 1;    box-shadow: 0 0 10px 5px rgba(232,197,71,0.85); }
+  45%       { opacity: 0.08; box-shadow: 0 0 2px  0px rgba(232,197,71,0);    }
+  55%       { opacity: 0.08; box-shadow: 0 0 2px  0px rgba(232,197,71,0);    }
+}
+
+.dot-breathe {
+  animation: dot-breathe 1.8s ease-in-out infinite;
+}
+
 /* ─── Status dot colours ─────────────────────────────────────────────────────── */
 
 .status-dot-production {

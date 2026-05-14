@@ -72,13 +72,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           style={{ borderBottom: "1px solid #1E2226" }}
         >
           {/* Pulse dot */}
-          <span className="relative flex h-2 w-2 flex-shrink-0">
+          <span className="relative flex h-3 w-3 flex-shrink-0">
             <span
-              className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
+              className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
               style={{ background: "#E8C547" }}
             />
             <span
-              className="relative inline-flex rounded-full h-2 w-2"
+              className="dot-breathe relative inline-flex rounded-full h-3 w-3"
               style={{ background: "#E8C547" }}
             />
           </span>
@@ -148,13 +148,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {/* Active pulse dot */}
                 {active && (
-                  <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                  <span className="relative flex h-2 w-2 flex-shrink-0">
                     <span
-                      className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-50"
+                      className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-70"
                       style={{ background: "#E8C547" }}
                     />
                     <span
-                      className="relative inline-flex rounded-full h-1.5 w-1.5"
+                      className="dot-breathe relative inline-flex rounded-full h-2 w-2"
                       style={{ background: "#E8C547" }}
                     />
                   </span>

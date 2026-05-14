@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { useEditorStore } from "@/store/editor";
 import { useDebounce } from "@/lib/useDebounce";
 import { apiClient } from "@/lib/api";
-import { useRef } from "react";
 import type { Cabinet } from "@woodcraft/shared";
 import type { ValidationReport, DrawingAnalysis } from "@/hooks/useCabinets";
 
@@ -82,6 +81,17 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
   const [analyzing, setAnalyzing] = useState(false);
   const [drawingAnalysis, setDrawingAnalysis] = useState<DrawingAnalysis | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const check = () => setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 8);
+    check();
+    el.addEventListener("scroll", check);
+    return () => el.removeEventListener("scroll", check);
+  }, [cabinet]);
 
   // Fire API call 800ms after the last keystroke — constraint propagation happens server-side
   const debouncedSave = useDebounce(
@@ -243,7 +253,21 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-4 space-y-5">
+      <div className="flex-1 relative overflow-hidden">
+      {!atBottom && (
+        <div
+          className="pointer-events-none absolute bottom-0 inset-x-0 h-10 flex items-end justify-center pb-1.5 z-10"
+          style={{ background: "linear-gradient(to bottom, transparent, #111214)" }}
+        >
+          <svg
+            className="w-4 h-4 text-gray-500 animate-bounce"
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+      )}
+      <div ref={scrollRef} className="h-full overflow-auto p-4 space-y-5">
         {/* Dimensions — changes trigger constraint propagation */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
@@ -311,6 +335,7 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
             </div>
           </section>
         )}
+      </div>
       </div>
 
       {/* Hidden file input for drawing upload */}

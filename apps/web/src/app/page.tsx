@@ -185,6 +185,8 @@ const PLANS = [
   },
 ];
 
+const BANNER_H = 38;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function padNum(n: number) {
@@ -205,6 +207,61 @@ function PulseRing({ color = GOLD, size = 8 }: { color?: string; size?: number }
         style={{ width: "100%", height: "100%", backgroundColor: color }}
       />
     </span>
+  );
+}
+
+// ─── DevBanner ────────────────────────────────────────────────────────────────
+
+function DevBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div
+      className="fixed left-0 right-0 flex items-center justify-center px-8"
+      style={{
+        top: 0,
+        zIndex: 60,
+        height: BANNER_H,
+        background: "rgba(232,197,71,0.07)",
+        borderBottom: "1px solid rgba(232,197,71,0.18)",
+        backdropFilter: "blur(12px)",
+      }}
+    >
+      <p className="text-center" style={{ fontSize: 11, color: "#8A8070", letterSpacing: "0.3px" }}>
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "2px",
+            color: GOLD,
+            background: "rgba(232,197,71,0.12)",
+            border: "1px solid rgba(232,197,71,0.25)",
+            padding: "2px 6px",
+            marginRight: 8,
+          }}
+        >
+          BETA
+        </span>
+        WoodCraft OS is currently in development.{" "}
+        <span style={{ color: "#A09070" }}>Share your feedback with </span>
+        <span style={{ color: GOLD, fontWeight: 600 }}>Mia</span>
+        <span style={{ color: "#A09070" }}>, our AI agent — call </span>
+        <a
+          href="tel:+12678619083"
+          style={{ color: GOLD, fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 3 }}
+        >
+          (267) 861-9083
+        </a>
+      </p>
+      <button
+        onClick={onDismiss}
+        className="absolute right-3 transition-colors"
+        style={{ fontSize: 14, color: DIM, lineHeight: 1, padding: "4px 8px" }}
+        onMouseEnter={(e) => ((e.target as HTMLElement).style.color = MUTED)}
+        onMouseLeave={(e) => ((e.target as HTMLElement).style.color = DIM)}
+        aria-label="Dismiss banner"
+      >
+        ✕
+      </button>
+    </div>
   );
 }
 
@@ -324,7 +381,7 @@ function PricingModal({ onClose }: { onClose: () => void }) {
 
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 
-function Nav({ onCTA }: { onCTA: () => void }) {
+function Nav({ onCTA, topOffset = 0 }: { onCTA: () => void; topOffset?: number }) {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -335,8 +392,9 @@ function Nav({ onCTA }: { onCTA: () => void }) {
 
   return (
     <nav
-      className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between transition-all duration-300"
+      className="fixed left-0 right-0 z-40 flex items-center justify-between transition-all duration-300"
       style={{
+        top: topOffset,
         padding: "0 20px",
         height: 52,
         background: scrolled ? "rgba(8,10,12,0.96)" : "transparent",
@@ -986,6 +1044,7 @@ export default function LandingPage() {
   const router = useRouter();
   const { user } = useAuthStore();
   const [showPricing, setShowPricing] = useState(false);
+  const [showBanner, setShowBanner] = useState(true);
 
   useEffect(() => {
     if (user) router.replace("/dashboard");
@@ -995,7 +1054,8 @@ export default function LandingPage() {
 
   return (
     <div style={{ background: BG, color: TEXT, fontFamily: "system-ui, sans-serif" }}>
-      <Nav onCTA={() => setShowPricing(true)} />
+      {showBanner && <DevBanner onDismiss={() => setShowBanner(false)} />}
+      <Nav onCTA={() => setShowPricing(true)} topOffset={showBanner ? BANNER_H : 0} />
       <ScrollVideoHero onCTA={() => setShowPricing(true)} />
       <FeaturesSection />
       <HowItWorksSection />
