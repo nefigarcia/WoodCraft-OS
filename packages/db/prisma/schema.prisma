@@ -186,10 +186,14 @@ model CabinetPart {
   grainDir  String?  @map("grain_dir") @db.VarChar(20)
   // JSON: { top, bottom, left, right } booleans
   edgeBanding Json?  @map("edge_banding")
-  // Machine-specific cut parameters for CNC post-processing
-  cutParams Json?    @map("cut_params")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  // Machine-specific cut parameters, joinery specs, hardware boring positions
+  cutParams     Json?    @map("cut_params")
+  // Assembly group: carcass | face_frame | door | drawer | shelf
+  assemblyGroup String?  @map("assembly_group") @db.VarChar(50)
+  // Manual parts are user-added and survive geometry recomputes
+  isManual      Boolean  @default(false) @map("is_manual")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   cabinet  Cabinet   @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
   material Material? @relation(fields: [materialId], references: [id])

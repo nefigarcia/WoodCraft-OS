@@ -75,6 +75,7 @@ export interface CadPart {
   grain_dir?: string | null;
   edge_banding?: Record<string, boolean> | null;
   cut_params?: Record<string, unknown> | null;
+  assembly_group?: string | null;
 }
 
 export interface CadGeometryResponse {

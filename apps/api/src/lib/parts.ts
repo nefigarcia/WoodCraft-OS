@@ -1,7 +1,7 @@
 /**
- * Syncs cabinet parts in the DB from a cad-service geometry response.
- * Runs in a transaction: deletes all existing parts, inserts fresh set.
- * Returns the newly created parts.
+ * Syncs cabinet parts from a cad-service geometry response.
+ * Manual parts (isManual=true) are preserved across recomputes — they survive
+ * geometry changes and must be explicitly deleted by the user.
  */
 import { prisma } from "@/lib/prisma";
 import type { CadPart } from "@/lib/services";
@@ -13,7 +13,8 @@ export async function syncParts(
   cadParts: CadPart[]
 ): Promise<Prisma.CabinetPartGetPayload<Record<string, never>>[]> {
   await prisma.$transaction([
-    prisma.cabinetPart.deleteMany({ where: { cabinetId } }),
+    // Delete only CAD-computed parts; manual parts survive
+    prisma.cabinetPart.deleteMany({ where: { cabinetId, isManual: false } }),
     prisma.cabinetPart.createMany({
       data: cadParts.map((p) => ({
         cabinetId,
@@ -25,18 +26,16 @@ export async function syncParts(
         thickness: p.thickness,
         quantity: p.quantity,
         grainDir: p.grain_dir ?? null,
-        edgeBanding: p.edge_banding
-          ? (p.edge_banding as any)
-          : undefined,
-        cutParams: p.cut_params
-          ? (p.cut_params as any)
-          : undefined,
+        edgeBanding: p.edge_banding ? (p.edge_banding as Prisma.InputJsonValue) : undefined,
+        cutParams: p.cut_params ? (p.cut_params as Prisma.InputJsonValue) : undefined,
+        assemblyGroup: p.assembly_group ?? null,
+        isManual: false,
       })),
     }),
   ]);
 
   return prisma.cabinetPart.findMany({
     where: { cabinetId },
-    orderBy: { partType: "asc" },
+    orderBy: [{ isManual: "asc" }, { assemblyGroup: "asc" }, { partType: "asc" }],
   });
 }

@@ -81,7 +81,7 @@ export const updateRoomSchema = createRoomSchema.partial();
 
 // ─── Cabinets ─────────────────────────────────────────────────────────────────
 
-export const CABINET_TYPES = ["base", "wall", "tall", "corner", "island"] as const;
+export const CABINET_TYPES = ["base", "wall", "tall", "corner", "drawer_base", "sink_base", "island"] as const;
 
 export const createCabinetSchema = z.object({
   type: z.enum(CABINET_TYPES),

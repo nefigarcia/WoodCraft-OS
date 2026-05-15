@@ -19,9 +19,10 @@ class PartDimensions(BaseModel):
     height: float
     thickness: float
     quantity: int = 1
-    grain_dir: Optional[str] = None
+    grain_dir: Optional[str] = None        # "horizontal" | "vertical" | "none"
     edge_banding: Optional[dict] = None
-    cut_params: Optional[dict] = None
+    cut_params: Optional[dict] = None      # joinery, hardware positions, shelf_pins
+    assembly_group: Optional[str] = None   # "carcass" | "face_frame" | "door" | "drawer" | "shelf"
 
 
 class CabinetGeometryResponse(BaseModel):

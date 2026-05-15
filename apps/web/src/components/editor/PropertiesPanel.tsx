@@ -78,6 +78,11 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
   const projectId = useEditorStore((s) => s.projectId);
   const [downloadingStep, setDownloadingStep] = useState(false);
   const [downloadingDrawing, setDownloadingDrawing] = useState(false);
+  const [editingPartId, setEditingPartId] = useState<string | null>(null);
+  const [editingPartValues, setEditingPartValues] = useState<Record<string, number>>({});
+  const [savingPart, setSavingPart] = useState(false);
+  const [showAddPart, setShowAddPart] = useState(false);
+  const [newPart, setNewPart] = useState({ name: "", width: 600, height: 400, thickness: 18, quantity: 1 });
   const [drawingSvg, setDrawingSvg] = useState<{ svg: string; name: string } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [drawingAnalysis, setDrawingAnalysis] = useState<DrawingAnalysis | null>(null);
@@ -160,6 +165,55 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
       updateCabinet(cabinet!.id, { parameters: { ...(cabinet!.parameters ?? {}), [key]: v } });
       debouncedSave(cabinet!.id, { parameters: { [key]: v } });
     };
+  }
+
+  function handleParamStr(key: string) {
+    return (v: string) => {
+      updateCabinet(cabinet!.id, { parameters: { ...(cabinet!.parameters ?? {}), [key]: v } });
+      void onSave(cabinet!.id, { parameters: { [key]: v } });
+    };
+  }
+
+  async function handlePartEditSave(partId: string) {
+    if (!projectId || !cabinet) return;
+    setSavingPart(true);
+    try {
+      await apiClient.patch(
+        `/projects/${projectId}/rooms/${cabinet.roomId}/cabinets/${cabinet.id}/parts/${partId}`,
+        editingPartValues
+      );
+      // Refresh parts by triggering a no-op save
+      await onSave(cabinet.id, {});
+    } catch { /* silent */ } finally {
+      setSavingPart(false);
+      setEditingPartId(null);
+    }
+  }
+
+  async function handlePartDelete(partId: string) {
+    if (!projectId || !cabinet) return;
+    try {
+      await apiClient.delete(
+        `/projects/${projectId}/rooms/${cabinet.roomId}/cabinets/${cabinet.id}/parts/${partId}`
+      );
+      await onSave(cabinet.id, {});
+    } catch { /* silent */ }
+  }
+
+  async function handleAddPart() {
+    if (!projectId || !cabinet || !newPart.name.trim()) return;
+    setSavingPart(true);
+    try {
+      await apiClient.post(
+        `/projects/${projectId}/rooms/${cabinet.roomId}/cabinets/${cabinet.id}/parts`,
+        { ...newPart, partType: "custom", assemblyGroup: "carcass" }
+      );
+      setShowAddPart(false);
+      setNewPart({ name: "", width: 600, height: 400, thickness: 18, quantity: 1 });
+      await onSave(cabinet.id, {});
+    } catch { /* silent */ } finally {
+      setSavingPart(false);
+    }
   }
 
   const params = (cabinet.parameters ?? {}) as Record<string, unknown>;
@@ -301,46 +355,178 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">Parameters</p>
           <div className="space-y-2">
-            <ParamInput
-              label="Door count"
-              value={Number(params["doorCount"] ?? 2)}
-              onChange={handleParam("doorCount")}
-            />
-            <ParamInput
-              label="Drawer count"
-              value={Number(params["drawerCount"] ?? 0)}
-              onChange={handleParam("drawerCount")}
-            />
-            <ParamInput
-              label="Shelf count"
-              value={Number(params["shelfCount"] ?? 1)}
-              onChange={handleParam("shelfCount")}
-            />
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Construction</label>
+              <select
+                value={String(params["constructionMethod"] ?? "frameless")}
+                onChange={(e) => handleParamStr("constructionMethod")(e.target.value)}
+                className="w-full bg-surface-100 border border-surface-300 rounded-md px-2 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+              >
+                <option value="frameless">Frameless (European)</option>
+                <option value="face_frame">Face Frame (American)</option>
+              </select>
+            </div>
+            <ParamInput label="Door count"   value={Number(params["doorCount"]   ?? 2)} onChange={handleParam("doorCount")} />
+            <ParamInput label="Drawer count" value={Number(params["drawerCount"] ?? 0)} onChange={handleParam("drawerCount")} />
+            <ParamInput label="Shelf count"  value={Number(params["shelfCount"]  ?? 1)} onChange={handleParam("shelfCount")} />
+            {params["constructionMethod"] === "face_frame" && (<>
+              <ParamInput label="Stile width (mm)" value={Number(params["stileWidth"] ?? 38)} onChange={handleParam("stileWidth")} />
+              <ParamInput label="Rail width (mm)"  value={Number(params["railWidth"]  ?? 38)} onChange={handleParam("railWidth")} />
+            </>)}
           </div>
         </section>
 
-        {/* Parts list (populated by cad-service) */}
-        {cabinet.parts.length > 0 && (
-          <section>
-            <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
-              Parts ({cabinet.parts.length})
-            </p>
-            <div className="space-y-0.5">
-              {cabinet.parts.map((part) => (
-                <div
-                  key={part.id}
-                  className="flex justify-between text-xs text-gray-400 py-1 border-b border-surface-200 last:border-0"
+        {/* Parts list — grouped by assembly group */}
+        {cabinet.parts.length > 0 && (() => {
+          const GROUP_META: Record<string, { label: string; color: string }> = {
+            carcass:    { label: "Carcass",    color: "#6A7280" },
+            face_frame: { label: "Face Frame", color: "#60a5fa" },
+            door:       { label: "Doors",      color: "#E8C547" },
+            drawer:     { label: "Drawers",    color: "#B07EE8" },
+            shelf:      { label: "Shelves",    color: "#A0C870" },
+          };
+          const GRAIN_ICON: Record<string, string> = { vertical: "⇕", horizontal: "⇔", none: "·" };
+
+          const grouped: Record<string, typeof cabinet.parts> = {};
+          for (const part of cabinet.parts) {
+            const g = (part as any).assemblyGroup ?? "carcass";
+            (grouped[g] ??= []).push(part);
+          }
+
+          return (
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-gray-400 text-xs uppercase tracking-wider">
+                  Parts ({cabinet.parts.length})
+                </p>
+                <button
+                  onClick={() => setShowAddPart((v) => !v)}
+                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
                 >
-                  <span className="capitalize">{part.name.replace(/_/g, " ")}</span>
-                  <span className="text-gray-600 tabular-nums">
-                    {Number(part.width).toFixed(0)}×{Number(part.height).toFixed(0)}
-                    {part.quantity > 1 && <span className="text-gray-500"> ×{part.quantity}</span>}
-                  </span>
+                  {showAddPart ? "Cancel" : "+ Add part"}
+                </button>
+              </div>
+
+              {/* Add custom part form */}
+              {showAddPart && (
+                <div className="mb-3 p-2.5 rounded-lg border border-surface-300 space-y-2">
+                  <input
+                    placeholder="Part name"
+                    value={newPart.name}
+                    onChange={(e) => setNewPart((p) => ({ ...p, name: e.target.value }))}
+                    className="w-full bg-surface-100 border border-surface-300 rounded-md px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(["width", "height", "thickness"] as const).map((f) => (
+                      <div key={f}>
+                        <label className="block text-[10px] text-gray-500 mb-0.5 capitalize">{f}</label>
+                        <input type="number" min={1}
+                          value={newPart[f]}
+                          onChange={(e) => setNewPart((p) => ({ ...p, [f]: Number(e.target.value) }))}
+                          className="w-full bg-surface-100 border border-surface-300 rounded px-1.5 py-1 text-white text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => void handleAddPart()}
+                    disabled={savingPart || !newPart.name.trim()}
+                    className="w-full text-xs py-1.5 rounded-md font-medium disabled:opacity-50 transition-colors"
+                    style={{ background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5a" }}
+                  >
+                    {savingPart ? "Adding…" : "Add to cabinet"}
+                  </button>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
+              )}
+
+              <div className="space-y-3">
+                {Object.entries(grouped).map(([group, parts]) => {
+                  const meta = GROUP_META[group] ?? { label: group, color: "#6A7280" };
+                  return (
+                    <div key={group}>
+                      <p className="text-[10px] font-semibold uppercase tracking-widest mb-1"
+                        style={{ color: meta.color }}>{meta.label}</p>
+                      <div className="space-y-0">
+                        {parts.map((part) => {
+                          const isEditing = editingPartId === part.id;
+                          const grain = (part as any).grainDir as string | null;
+                          const isManual = (part as any).isManual as boolean;
+                          return (
+                            <div key={part.id} className="border-b border-surface-200 last:border-0">
+                              {/* Row */}
+                              <div
+                                className="flex items-center gap-1 py-1 cursor-pointer group"
+                                onClick={() => {
+                                  if (isEditing) { setEditingPartId(null); return; }
+                                  setEditingPartId(part.id);
+                                  setEditingPartValues({ width: Number(part.width), height: Number(part.height), thickness: Number(part.thickness), quantity: part.quantity });
+                                }}
+                              >
+                                {grain && (
+                                  <span className="text-gray-600 text-[10px] w-3 flex-shrink-0" title={`Grain: ${grain}`}>
+                                    {GRAIN_ICON[grain] ?? "·"}
+                                  </span>
+                                )}
+                                <span className="flex-1 text-xs text-gray-400 capitalize truncate">
+                                  {part.name.replace(/_/g, " ")}
+                                  {isManual && <span className="ml-1 text-[9px] text-brand-500">CUSTOM</span>}
+                                </span>
+                                <span className="text-gray-600 text-xs tabular-nums flex-shrink-0">
+                                  {Number(part.width).toFixed(0)}×{Number(part.height).toFixed(0)}×{Number(part.thickness).toFixed(0)}
+                                  {part.quantity > 1 && <span className="text-gray-500"> ×{part.quantity}</span>}
+                                </span>
+                                <span className="text-gray-600 text-[10px] ml-1 opacity-0 group-hover:opacity-100">
+                                  {isEditing ? "▲" : "▼"}
+                                </span>
+                              </div>
+
+                              {/* Inline editor */}
+                              {isEditing && (
+                                <div className="pb-2 space-y-1.5">
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    {(["width", "height", "thickness", "quantity"] as const).map((f) => (
+                                      <div key={f}>
+                                        <label className="block text-[10px] text-gray-500 mb-0.5 capitalize">{f}</label>
+                                        <input type="number" min={1}
+                                          value={editingPartValues[f] ?? 0}
+                                          onChange={(e) => setEditingPartValues((v) => ({ ...v, [f]: Number(e.target.value) }))}
+                                          className="w-full bg-surface-100 border border-surface-300 rounded px-1.5 py-1 text-white text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); void handlePartEditSave(part.id); }}
+                                      disabled={savingPart}
+                                      className="flex-1 text-[11px] py-1 rounded disabled:opacity-50"
+                                      style={{ background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5a" }}
+                                    >
+                                      {savingPart ? "Saving…" : "Save"}
+                                    </button>
+                                    {isManual && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); void handlePartDelete(part.id); }}
+                                        className="text-[11px] px-2 py-1 rounded text-red-500 hover:bg-surface-100 transition-colors"
+                                      >
+                                        Delete
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })()}
 
         {/* Drawing analysis result */}
         {(analyzing || drawingAnalysis) && (
