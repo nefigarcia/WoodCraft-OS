@@ -44,12 +44,17 @@ export default function MaterialsPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    const payload = {
+      ...form,
+      supplier: form.supplier?.trim() || null,
+      sku: form.sku?.trim() || null,
+    };
     try {
       if (modal === "new") {
-        const created = await apiClient.post<Material>("/materials", form);
+        const created = await apiClient.post<Material>("/materials", payload);
         setMaterials((p) => [...p, created]);
       } else if (modal) {
-        const updated = await apiClient.patch<Material>(`/materials/${(modal as Material).id}`, form);
+        const updated = await apiClient.patch<Material>(`/materials/${(modal as Material).id}`, payload);
         setMaterials((p) => p.map((m) => m.id === updated.id ? updated : m));
       }
       setModal(null);

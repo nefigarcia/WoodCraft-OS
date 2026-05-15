@@ -5,6 +5,11 @@ import { parseBody, createCabinetSchema } from "@/lib/validate";
 import { cadService } from "@/lib/services";
 import { syncParts } from "@/lib/parts";
 import { apiError, ok } from "@/lib/errors";
+import type { Prisma } from "@woodcraft/db";
+
+type CabinetWithParts = Prisma.CabinetGetPayload<{
+  include: { parts: true; material: true };
+}>;
 
 type Params = { params: { id: string; roomId: string } };
 
@@ -25,7 +30,29 @@ export async function GET(req: NextRequest, { params }: Params) {
     orderBy: { createdAt: "asc" },
   });
 
-  return ok(cabinets);
+  // Auto-heal cabinets whose parts were never persisted (e.g. CAD service was
+  // unavailable when the cabinet was created). Runs once per affected cabinet.
+  const healed = await Promise.all(
+    cabinets.map(async (cabinet: CabinetWithParts) => {
+      if (cabinet.parts.length > 0) return cabinet;
+      const geometry = await cadService
+        .computeGeometry({
+          cabinet_id: cabinet.id,
+          type: cabinet.type,
+          width: Number(cabinet.width),
+          height: Number(cabinet.height),
+          depth: Number(cabinet.depth),
+          parameters: cabinet.parameters as Record<string, unknown>,
+          material_thickness: 18,
+        })
+        .catch(() => null);
+      if (!geometry) return cabinet;
+      const parts = await syncParts(cabinet.id, orgId, geometry.parts);
+      return { ...cabinet, parts };
+    })
+  );
+
+  return ok(healed);
 }
 
 export async function POST(req: NextRequest, { params }: Params) {

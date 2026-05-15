@@ -78,6 +78,7 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
   const projectId = useEditorStore((s) => s.projectId);
   const [downloadingStep, setDownloadingStep] = useState(false);
   const [downloadingDrawing, setDownloadingDrawing] = useState(false);
+  const [drawingSvg, setDrawingSvg] = useState<{ svg: string; name: string } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [drawingAnalysis, setDrawingAnalysis] = useState<DrawingAnalysis | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,24 +188,36 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
     setDrawingAnalysis(null);
   }
 
-  async function downloadDrawing() {
+  async function openDrawing() {
     if (!projectId || !cabinet) return;
     setDownloadingDrawing(true);
     try {
       const blob = await apiClient.download(
         `/projects/${projectId}/rooms/${cabinet.roomId}/cabinets/${cabinet.id}/drawing`
       );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `drawing_${cabinet.name ?? cabinet.id}.svg`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const raw = await blob.text();
+      // Strip fixed width/height so the SVG scales to its viewBox inside the modal
+      const svg = raw.replace(
+        /(<svg[^>]*)\s+width="[^"]*"\s+height="[^"]*"/,
+        '$1 width="100%" height="100%"'
+      );
+      setDrawingSvg({ svg, name: cabinet.name ?? cabinet.id });
     } catch {
       // silent — cad-service may not be running
     } finally {
       setDownloadingDrawing(false);
     }
+  }
+
+  function downloadDrawingSvg() {
+    if (!drawingSvg) return;
+    const blob = new Blob([drawingSvg.svg], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `drawing_${drawingSvg.name}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function downloadStep() {
@@ -228,6 +241,7 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
   }
 
   return (
+    <>
     <aside
       className={asideClass}
       style={{ background: "#111214", borderLeft: "1px solid #1E2226" }}
@@ -562,7 +576,7 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
           {analyzing ? "Analyzing…" : "Analyze Drawing with AI"}
         </button>
         <button
-          onClick={() => void downloadDrawing()}
+          onClick={() => void openDrawing()}
           disabled={downloadingDrawing}
           className="w-full text-sm bg-surface-100 hover:bg-surface-200 disabled:opacity-50 text-gray-300 py-1.5 rounded-md transition-colors"
         >
@@ -586,5 +600,41 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         </button>
       </div>
     </aside>
+
+      {drawingSvg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setDrawingSvg(null)}>
+          <div
+            className="relative bg-surface-50 border border-surface-200 rounded-xl shadow-2xl flex flex-col"
+            style={{ width: "min(90vw, 960px)", height: "90vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-surface-200 flex-shrink-0">
+              <span className="text-white text-sm font-semibold">Shop Drawing — {drawingSvg.name}</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={downloadDrawingSvg}
+                  className="text-xs bg-brand-500 hover:bg-brand-600 text-white px-3 py-1.5 rounded-md transition-colors"
+                >
+                  Download .svg
+                </button>
+                <button
+                  onClick={() => setDrawingSvg(null)}
+                  className="text-gray-500 hover:text-white transition-colors text-lg leading-none px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto flex-1 p-6 bg-white rounded-b-xl">
+              <div
+                className="w-full h-full"
+                style={{ minHeight: 0 }}
+                dangerouslySetInnerHTML={{ __html: drawingSvg.svg }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

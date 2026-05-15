@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api";
@@ -35,6 +35,16 @@ interface Cutlist {
   rows: CutlistRow[];
   byMaterial: MaterialGroup[];
   summary: { totalParts: number; totalPieces: number; estimatedMaterialCost: number };
+}
+
+interface NestingSheet {
+  materialId: string | null;
+  materialName: string;
+  sheetWidth: number;
+  sheetHeight: number;
+  totalSheets: number;
+  overallEfficiency: number;
+  svg: string | null;
 }
 
 function eb(row: CutlistRow): string {
@@ -107,6 +117,8 @@ export default function CutlistPage() {
   const [cutlist, setCutlist] = useState<Cutlist | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [nesting, setNesting] = useState<NestingSheet[] | null>(null);
+  const [nestingLoading, setNestingLoading] = useState(false);
 
   useEffect(() => {
     apiClient
@@ -114,6 +126,14 @@ export default function CutlistPage() {
       .then((c) => {
         setCutlist(c);
         setExpanded(new Set(c.byMaterial.map((m) => m.materialId ?? "__unassigned__")));
+        if (c.rows.length > 0) {
+          setNestingLoading(true);
+          apiClient
+            .get<{ sheets: NestingSheet[] }>(`/projects/${id}/cutlist/nesting`)
+            .then((r) => setNesting(r.sheets))
+            .catch(console.error)
+            .finally(() => setNestingLoading(false));
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -164,6 +184,37 @@ export default function CutlistPage() {
           </Link>
         </div>
       </div>
+
+      {/* Nesting diagram */}
+      {(nestingLoading || (nesting && nesting.length > 0)) && (
+        <div className="mb-6">
+          <h2 className="text-white font-semibold mb-3">Sheet Layout</h2>
+          {nestingLoading ? (
+            <div className="text-gray-500 text-sm">Computing nesting…</div>
+          ) : (
+            <div className="space-y-4">
+              {nesting?.map((s) => (
+                <div key={s.materialId ?? "__unassigned__"} className="bg-surface-50 border border-surface-200 rounded-xl p-4">
+                  <div className="flex items-center gap-4 text-sm mb-3">
+                    <span className="text-white font-medium">{s.materialName}</span>
+                    <span className="text-gray-500">{s.sheetWidth} × {s.sheetHeight} mm</span>
+                    <span className="text-gray-400">{s.totalSheets} sheet{s.totalSheets !== 1 ? "s" : ""}</span>
+                    <span className="text-brand-400">{(s.overallEfficiency * 100).toFixed(0)}% efficiency</span>
+                  </div>
+                  {s.svg ? (
+                    <div
+                      className="overflow-x-auto rounded"
+                      dangerouslySetInnerHTML={{ __html: s.svg }}
+                    />
+                  ) : (
+                    <p className="text-gray-600 text-xs">Layout unavailable</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {cutlist.byMaterial.length === 0 ? (
         <div className="bg-surface-50 border border-surface-200 rounded-xl p-10 text-center">

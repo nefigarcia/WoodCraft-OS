@@ -47,6 +47,7 @@ export async function POST(
 
   const room = await prisma.room.create({
     data: { ...parsed.data, projectId: params.id, orgId },
+    include: { _count: { select: { cabinets: true } } },
   });
 
   return ok(room, 201);

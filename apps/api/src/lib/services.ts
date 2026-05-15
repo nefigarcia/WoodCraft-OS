@@ -116,6 +116,52 @@ export interface AiValidationResponse {
   raw_response: Record<string, unknown> | null;
 }
 
+// ─── Nesting Types ────────────────────────────────────────────────────────────
+
+export interface NestingPartInput {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  quantity: number;
+  rotatable?: boolean;
+}
+
+export interface NestingRequest {
+  parts: NestingPartInput[];
+  sheet_width?: number;
+  sheet_height?: number;
+  kerf?: number;
+}
+
+export interface NestingPlacement {
+  part_id: string;
+  part_name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotated: boolean;
+  sheet_index: number;
+}
+
+export interface NestingSheet {
+  index: number;
+  width: number;
+  height: number;
+  placements: NestingPlacement[];
+  efficiency: number;
+}
+
+export interface NestingResponse {
+  sheets: NestingSheet[];
+  total_sheets: number;
+  total_parts: number;
+  overall_efficiency: number;
+  unplaced_parts: string[];
+  svg: string;
+}
+
 // ─── CNC Service Types ────────────────────────────────────────────────────────
 
 export interface CncGcodeRequest {
@@ -141,6 +187,8 @@ export interface CncGcodeResponse {
 export const cadService = {
   computeGeometry: (req: CadGeometryRequest) =>
     post<CadGeometryResponse>(CAD_URL, "/cabinets/geometry", req),
+  computeNesting: (req: NestingRequest) =>
+    post<NestingResponse>(CAD_URL, "/nesting/compute", req),
   exportStep: (cabinetId: string, req: CadGeometryRequest) =>
     postBytes(CAD_URL, `/cabinets/${cabinetId}/step`, req),
   exportDrawing: (cabinetId: string, req: CadGeometryRequest) =>

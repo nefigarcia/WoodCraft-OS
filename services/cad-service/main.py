@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.routers import cabinet
+from app.routers import nesting
 
 app = FastAPI(
     title="WoodCraft CAD Service",
@@ -38,3 +39,4 @@ def health():
 
 
 app.include_router(cabinet.router, prefix="/cabinets", tags=["cabinets"])
+app.include_router(nesting.router, prefix="/nesting", tags=["nesting"])

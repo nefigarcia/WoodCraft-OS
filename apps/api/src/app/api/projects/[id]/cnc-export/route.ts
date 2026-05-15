@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getContext } from "@/lib/context";
 import { prisma } from "@/lib/prisma";
-import { cncService } from "@/lib/services";
+import { cadService, cncService } from "@/lib/services";
 import { buildCutlist } from "@/lib/cutlist";
 import { parseBody, cncExportSchema } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
@@ -47,6 +47,32 @@ export async function POST(
     thickness: r.thickness,
     quantity: r.quantity,
   }));
+
+  // Run MAXRECTS nesting — uses material sheet dims if available, else request/defaults
+  const nestingParts = cutlist.rows.map((r) => ({
+    id: r.partId,
+    name: `${r.cabinetName} - ${r.partName}`,
+    width: r.width,
+    height: r.height,
+    quantity: r.quantity,
+  }));
+
+  // Prefer material-defined sheet size; fall back to request body or 4x8 standard
+  const firstMat = cutlist.byMaterial.find((m) => m.sheetWidth && m.sheetHeight);
+  const sheetWidth = parsed.data.sheetWidth ?? firstMat?.sheetWidth ?? 1220;
+  const sheetHeight = parsed.data.sheetHeight ?? firstMat?.sheetHeight ?? 2440;
+
+  const nestingResult = await cadService
+    .computeNesting({
+      parts: nestingParts,
+      sheet_width: sheetWidth,
+      sheet_height: sheetHeight,
+      kerf: parsed.data.kerf,
+    })
+    .catch((err: unknown) => {
+      console.error("[cad-service] Nesting error:", err);
+      return null;
+    });
 
   let gcodeResult: { jobId: string; gcode: string; lineCount: number } | null = null;
   let dxfResult: { jobId: string; dxf: string; partCount: number } | null = null;
@@ -102,5 +128,16 @@ export async function POST(
     gcodeLineCount: gcodeResult?.lineCount ?? null,
     dxf: dxfResult?.dxf ?? null,
     dxfPartCount: dxfResult?.partCount ?? null,
+    nesting: nestingResult
+      ? {
+          totalSheets: nestingResult.total_sheets,
+          totalParts: nestingResult.total_parts,
+          overallEfficiency: nestingResult.overall_efficiency,
+          sheetWidth,
+          sheetHeight,
+          unplacedParts: nestingResult.unplaced_parts,
+          svg: nestingResult.svg,
+        }
+      : null,
   });
 }

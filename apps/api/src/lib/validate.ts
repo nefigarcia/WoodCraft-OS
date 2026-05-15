@@ -126,8 +126,8 @@ export const createMaterialSchema = z.object({
   sheetWidth: z.number().positive(),
   sheetHeight: z.number().positive(),
   costPerSheet: z.number().min(0),
-  supplier: z.string().max(255).optional(),
-  sku: z.string().max(100).optional(),
+  supplier: z.string().max(255).nullable().optional(),
+  sku: z.string().max(100).nullable().optional(),
   metadata: z.record(z.any()).optional(),
 });
 
@@ -154,6 +154,9 @@ export const cncExportSchema = z.object({
   machineProfileId: z.string().cuid("Invalid machine profile ID"),
   roomIds: z.array(z.string().cuid()).optional(), // undefined = all rooms
   format: z.enum(["gcode", "dxf", "both"]).default("both"),
+  sheetWidth: z.number().positive().optional(),   // mm, defaults to 1220 in cad-service
+  sheetHeight: z.number().positive().optional(),  // mm, defaults to 2440 in cad-service
+  kerf: z.number().min(0).max(20).optional(),     // saw blade kerf in mm
 });
 
 // ─── Quotes ──────────────────────────────────────────────────────────────────
