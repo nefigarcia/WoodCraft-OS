@@ -341,6 +341,111 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
             </div>
           </section>
         )}
+
+        {/* Drawing analysis result */}
+        {(analyzing || drawingAnalysis) && (
+          <div className="rounded-lg border border-surface-300 overflow-hidden">
+            {analyzing ? (
+              <div className="flex flex-col items-center gap-3 px-4 py-5">
+                <div className="relative flex items-center justify-center w-9 h-9">
+                  <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
+                  <svg className="relative w-5 h-5 text-brand-400 animate-pulse" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+                  </svg>
+                </div>
+                <div className="text-center">
+                  <p className="text-white text-xs font-medium">Analyzing drawing…</p>
+                  <p className="text-gray-500 text-xs mt-0.5">Gemini is extracting dimensions</p>
+                </div>
+                <div className="flex gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} className="w-1.5 h-1.5 rounded-full bg-brand-500"
+                      style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+                  ))}
+                </div>
+              </div>
+            ) : drawingAnalysis ? (
+              <div className="p-3">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14,2 14,8 20,8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                  <span className="text-gray-400 text-xs uppercase tracking-wider">Drawing Analysis</span>
+                  <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${drawingAnalysis.confidence === "high" ? "bg-green-900/50 text-green-400" : drawingAnalysis.confidence === "medium" ? "bg-yellow-900/50 text-yellow-400" : "bg-red-900/50 text-red-400"}`}>
+                    {drawingAnalysis.confidence.toUpperCase()}
+                  </span>
+                </div>
+                <div className="space-y-1 mb-2.5">
+                  <div className="flex justify-between text-xs"><span className="text-gray-500">Type</span><span className="text-gray-300 capitalize">{drawingAnalysis.type}</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-gray-500">W × H × D</span><span className="text-gray-300 tabular-nums">{drawingAnalysis.width} × {drawingAnalysis.height} × {drawingAnalysis.depth} mm</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-gray-500">Doors / Drawers / Shelves</span><span className="text-gray-300 tabular-nums">{drawingAnalysis.parameters.doorCount} / {drawingAnalysis.parameters.drawerCount} / {drawingAnalysis.parameters.shelfCount}</span></div>
+                </div>
+                {drawingAnalysis.notes && <p className="text-gray-500 text-xs leading-snug mb-3 italic">{drawingAnalysis.notes}</p>}
+                {drawingAnalysis.confidence !== "high" && <p className="text-yellow-600 text-xs leading-snug mb-3">Dimensions are estimated — verify before saving.</p>}
+                <div className="flex gap-2">
+                  <button onClick={() => { void applyDrawingAnalysis(); }} className="flex-1 text-xs font-medium py-1.5 rounded-md transition-colors" style={{ background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5a" }}>Apply to Cabinet</button>
+                  <button onClick={() => setDrawingAnalysis(null)} className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-md hover:bg-surface-100 transition-colors">Dismiss</button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* AI validation report */}
+        {(validating || validationReport) && (
+          <div className="rounded-lg border border-surface-300 overflow-hidden">
+            {validating ? (
+              <div className="flex flex-col items-center gap-3 px-4 py-5">
+                <div className="relative flex items-center justify-center w-9 h-9">
+                  <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
+                  <svg className="relative w-5 h-5 text-brand-400 animate-pulse" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+                  </svg>
+                </div>
+                <div className="text-center">
+                  <p className="text-white text-xs font-medium">Analyzing cabinet…</p>
+                  <p className="text-gray-500 text-xs mt-0.5">Gemini is reviewing your design</p>
+                </div>
+                <div className="flex gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} className="w-1.5 h-1.5 rounded-full bg-brand-500"
+                      style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+                  ))}
+                </div>
+              </div>
+            ) : validationReport ? (
+              <div className="p-3">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+                  </svg>
+                  <span className="text-gray-400 text-xs uppercase tracking-wider">AI Validation</span>
+                  <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${validationReport.status === "pass" ? "bg-green-900/50 text-green-400" : validationReport.status === "warning" ? "bg-yellow-900/50 text-yellow-400" : "bg-red-900/50 text-red-400"}`}>
+                    {validationReport.status.toUpperCase()}
+                  </span>
+                </div>
+                {validationReport.errors.length === 0 && validationReport.warnings.length === 0 && (
+                  <p className="text-green-500 text-xs">No issues found.</p>
+                )}
+                <div className="space-y-1.5">
+                  {validationReport.errors.map((e, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="text-red-500 text-xs mt-0.5 flex-shrink-0">✕</span>
+                      <p className="text-red-400 text-xs leading-snug">{e.message}</p>
+                    </div>
+                  ))}
+                  {validationReport.warnings.map((w, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="text-yellow-500 text-xs mt-0.5 flex-shrink-0">⚠</span>
+                      <p className="text-yellow-400 text-xs leading-snug">{w.message}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
         {!atBottom && (
           <div
@@ -365,181 +470,6 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         className="hidden"
         onChange={(e) => { void handleFileChange(e); }}
       />
-
-      {/* Drawing analysis result */}
-      {(analyzing || drawingAnalysis) && (
-        <div className="mx-4 mb-0 rounded-lg border border-surface-300 overflow-hidden">
-          {analyzing ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-5">
-              {/* Pulsing sparkle icon */}
-              <div className="relative flex items-center justify-center w-9 h-9">
-                <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
-                <svg
-                  className="relative w-5 h-5 text-brand-400 animate-pulse"
-                  viewBox="0 0 24 24" fill="currentColor"
-                >
-                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
-                </svg>
-              </div>
-              <div className="text-center">
-                <p className="text-white text-xs font-medium">Analyzing drawing…</p>
-                <p className="text-gray-500 text-xs mt-0.5">Gemini is extracting dimensions</p>
-              </div>
-              {/* Animated dots */}
-              <div className="flex gap-1.5">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="w-1.5 h-1.5 rounded-full bg-brand-500"
-                    style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : drawingAnalysis ? (
-            <div className="p-3">
-              <div className="flex items-center gap-2 mb-2.5">
-                <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14,2 14,8 20,8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                </svg>
-                <span className="text-gray-400 text-xs uppercase tracking-wider">Drawing Analysis</span>
-                <span
-                  className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    drawingAnalysis.confidence === "high"
-                      ? "bg-green-900/50 text-green-400"
-                      : drawingAnalysis.confidence === "medium"
-                      ? "bg-yellow-900/50 text-yellow-400"
-                      : "bg-red-900/50 text-red-400"
-                  }`}
-                >
-                  {drawingAnalysis.confidence.toUpperCase()}
-                </span>
-              </div>
-
-              <div className="space-y-1 mb-2.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-500">Type</span>
-                  <span className="text-gray-300 capitalize">{drawingAnalysis.type}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-500">W × H × D</span>
-                  <span className="text-gray-300 tabular-nums">
-                    {drawingAnalysis.width} × {drawingAnalysis.height} × {drawingAnalysis.depth} mm
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-500">Doors / Drawers / Shelves</span>
-                  <span className="text-gray-300 tabular-nums">
-                    {drawingAnalysis.parameters.doorCount} / {drawingAnalysis.parameters.drawerCount} / {drawingAnalysis.parameters.shelfCount}
-                  </span>
-                </div>
-              </div>
-
-              {drawingAnalysis.notes && (
-                <p className="text-gray-500 text-xs leading-snug mb-3 italic">
-                  {drawingAnalysis.notes}
-                </p>
-              )}
-
-              {drawingAnalysis.confidence !== "high" && (
-                <p className="text-yellow-600 text-xs leading-snug mb-3">
-                  Dimensions are estimated — verify before saving.
-                </p>
-              )}
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { void applyDrawingAnalysis(); }}
-                  className="flex-1 text-xs font-medium py-1.5 rounded-md transition-colors"
-                  style={{ background: "#1a2a3a", color: "#60a5fa", border: "1px solid #1e3a5a" }}
-                >
-                  Apply to Cabinet
-                </button>
-                <button
-                  onClick={() => setDrawingAnalysis(null)}
-                  className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-md hover:bg-surface-100 transition-colors"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      {/* AI thinking / validation report */}
-      {(validating || validationReport) && (
-        <div className="mx-4 mb-4 rounded-lg border border-surface-300 overflow-hidden">
-          {validating ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-5">
-              {/* Pulsing sparkle icon */}
-              <div className="relative flex items-center justify-center w-9 h-9">
-                <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
-                <svg
-                  className="relative w-5 h-5 text-brand-400 animate-pulse"
-                  viewBox="0 0 24 24" fill="currentColor"
-                >
-                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
-                </svg>
-              </div>
-              <div className="text-center">
-                <p className="text-white text-xs font-medium">Analyzing cabinet…</p>
-                <p className="text-gray-500 text-xs mt-0.5">Gemini is reviewing your design</p>
-              </div>
-              {/* Animated dots */}
-              <div className="flex gap-1.5">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="w-1.5 h-1.5 rounded-full bg-brand-500"
-                    style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : validationReport ? (
-            <div className="p-3">
-              <div className="flex items-center gap-2 mb-2.5">
-                <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
-                </svg>
-                <span className="text-gray-400 text-xs uppercase tracking-wider">AI Validation</span>
-                <span
-                  className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    validationReport.status === "pass"
-                      ? "bg-green-900/50 text-green-400"
-                      : validationReport.status === "warning"
-                      ? "bg-yellow-900/50 text-yellow-400"
-                      : "bg-red-900/50 text-red-400"
-                  }`}
-                >
-                  {validationReport.status.toUpperCase()}
-                </span>
-              </div>
-              {validationReport.errors.length === 0 && validationReport.warnings.length === 0 && (
-                <p className="text-green-500 text-xs">No issues found.</p>
-              )}
-              <div className="space-y-1.5">
-                {validationReport.errors.map((e, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="text-red-500 text-xs mt-0.5 flex-shrink-0">✕</span>
-                    <p className="text-red-400 text-xs leading-snug">{e.message}</p>
-                  </div>
-                ))}
-                {validationReport.warnings.map((w, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="text-yellow-500 text-xs mt-0.5 flex-shrink-0">⚠</span>
-                    <p className="text-yellow-400 text-xs leading-snug">{w.message}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
 
       {/* Footer actions */}
       <div className="p-3 border-t border-surface-200 flex flex-col gap-2">
