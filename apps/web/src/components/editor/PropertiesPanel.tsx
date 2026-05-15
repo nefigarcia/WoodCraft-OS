@@ -90,7 +90,12 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
     const check = () => setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 8);
     check();
     el.addEventListener("scroll", check);
-    return () => el.removeEventListener("scroll", check);
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
   }, [cabinet]);
 
   // Fire API call 800ms after the last keystroke — constraint propagation happens server-side
@@ -253,21 +258,21 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         </div>
       </div>
 
-      <div className="flex-1 relative overflow-hidden">
-      {!atBottom && (
-        <div
-          className="pointer-events-none absolute bottom-0 inset-x-0 h-10 flex items-end justify-center pb-1.5 z-10"
-          style={{ background: "linear-gradient(to bottom, transparent, #111214)" }}
-        >
-          <svg
-            className="w-4 h-4 text-gray-500 animate-bounce"
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      <div className="flex-1 relative min-h-0">
+        {!atBottom && (
+          <div
+            className="pointer-events-none absolute bottom-0 inset-x-0 h-10 flex items-end justify-center pb-1.5 z-10"
+            style={{ background: "linear-gradient(to bottom, transparent, #111214)" }}
           >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </div>
-      )}
-      <div ref={scrollRef} className="h-full overflow-auto p-4 space-y-5">
+            <svg
+              className="w-4 h-4 text-gray-500 animate-bounce"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        )}
+      <div ref={scrollRef} className="absolute inset-0 overflow-auto p-4 space-y-5">
         {/* Dimensions — changes trigger constraint propagation */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
