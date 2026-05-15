@@ -149,9 +149,105 @@ def compute_wall_cabinet(req: CabinetGeometryRequest) -> list[PartDimensions]:
     return parts
 
 
+def compute_island_cabinet(req: CabinetGeometryRequest) -> list[PartDimensions]:
+    """Freestanding island/peninsula cabinet — accessible from all sides, toe kicks on four faces."""
+    t = req.material_thickness
+    W, H, D = req.width, req.height, req.depth
+    params = req.parameters
+
+    door_count: int = params.get("doorCount", 2)
+    drawer_count: int = params.get("drawerCount", 0)
+    shelf_count: int = params.get("shelfCount", 1)
+    toe_kick_height: float = params.get("toeKickHeight", 96.0)
+    door_overlay: float = params.get("doorOverlay", 3.0)
+
+    cabinet_H = H - toe_kick_height
+    interior_W = W - (2 * t)
+    # Both front and back have panels (no wall), so depth loses a panel on each side
+    interior_D = D - (2 * t)
+
+    parts: list[PartDimensions] = [
+        PartDimensions(
+            name="left_panel", part_type="left_panel",
+            width=D, height=cabinet_H, thickness=t,
+            edge_banding={"top": True, "bottom": False, "left": True, "right": True},
+        ),
+        PartDimensions(
+            name="right_panel", part_type="right_panel",
+            width=D, height=cabinet_H, thickness=t,
+            edge_banding={"top": True, "bottom": False, "left": True, "right": True},
+        ),
+        PartDimensions(
+            name="top_panel", part_type="top_panel",
+            width=interior_W, height=interior_D, thickness=t,
+            edge_banding={"top": False, "bottom": False, "left": True, "right": True},
+        ),
+        PartDimensions(
+            name="bottom_panel", part_type="bottom_panel",
+            width=interior_W, height=interior_D, thickness=t,
+        ),
+        # Toe kicks on all four faces
+        PartDimensions(
+            name="toe_kick_front", part_type="toe_kick",
+            width=interior_W, height=toe_kick_height, thickness=t,
+        ),
+        PartDimensions(
+            name="toe_kick_back", part_type="toe_kick",
+            width=interior_W, height=toe_kick_height, thickness=t,
+        ),
+        PartDimensions(
+            name="toe_kick_left", part_type="toe_kick",
+            width=interior_D, height=toe_kick_height, thickness=t,
+        ),
+        PartDimensions(
+            name="toe_kick_right", part_type="toe_kick",
+            width=interior_D, height=toe_kick_height, thickness=t,
+        ),
+    ]
+
+    for i in range(shelf_count):
+        parts.append(
+            PartDimensions(
+                name=f"shelf_{i + 1}", part_type="shelf",
+                width=interior_W - 1.0,
+                height=interior_D - 1.0,
+                thickness=t,
+                edge_banding={"top": False, "bottom": False, "left": True, "right": True},
+            )
+        )
+
+    if door_count > 0:
+        door_W = (W / door_count) + door_overlay
+        door_H = cabinet_H + door_overlay
+        parts.append(
+            PartDimensions(
+                name="door", part_type="door",
+                width=door_W, height=door_H, thickness=t,
+                quantity=door_count,
+                edge_banding={"top": True, "bottom": True, "left": True, "right": True},
+            )
+        )
+
+    if drawer_count > 0:
+        drawer_section_H = cabinet_H * 0.4
+        drawer_H = (drawer_section_H / drawer_count) + door_overlay
+        parts.append(
+            PartDimensions(
+                name="drawer_front", part_type="drawer_front",
+                width=(W / max(door_count, 1)) + door_overlay,
+                height=drawer_H, thickness=t,
+                quantity=drawer_count,
+                edge_banding={"top": True, "bottom": True, "left": True, "right": True},
+            )
+        )
+
+    return parts
+
+
 CABINET_BUILDERS = {
     "base": compute_base_cabinet,
     "wall": compute_wall_cabinet,
+    "island": compute_island_cabinet,
 }
 
 
