@@ -272,21 +272,8 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
         </div>
       </div>
 
-      <div className="flex-1 relative min-h-0">
-        {!atBottom && (
-          <div
-            className="pointer-events-none absolute bottom-0 inset-x-0 h-10 flex items-end justify-center pb-1.5 z-10"
-            style={{ background: "linear-gradient(to bottom, transparent, #111214)" }}
-          >
-            <svg
-              className="w-4 h-4 text-gray-500 animate-bounce"
-              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </div>
-        )}
-      <div ref={scrollRef} className="absolute inset-0 overflow-auto p-4 space-y-5">
+      <div className="flex-1 min-h-0 relative flex flex-col">
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto p-4 space-y-5">
         {/* Dimensions — changes trigger constraint propagation */}
         <section>
           <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
@@ -355,6 +342,19 @@ export function PropertiesPanel({ cabinet, saving, validating, validationReport,
           </section>
         )}
       </div>
+        {!atBottom && (
+          <div
+            className="pointer-events-none absolute bottom-0 inset-x-0 h-10 flex items-end justify-center pb-1.5 z-10"
+            style={{ background: "linear-gradient(to bottom, transparent, #111214)" }}
+          >
+            <svg
+              className="w-4 h-4 text-gray-500 animate-bounce"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Hidden file input for drawing upload */}
