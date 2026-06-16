@@ -36,7 +36,7 @@ export interface ValidationReport {
 }
 
 interface CreateCabinetInput {
-  type: "base" | "wall" | "tall" | "corner" | "island";
+  type: "base" | "wall" | "tall" | "corner" | "drawer_base" | "sink_base" | "island";
   name: string;
   width: number;
   height: number;
@@ -64,7 +64,7 @@ interface CabinetResponse extends Cabinet {
 }
 
 export function useCabinets(projectId: string) {
-  const { selectedRoomId, cabinets, setCabinets, updateCabinet, markClean } = useEditorStore();
+  const { selectedRoomId, cabinets, setCabinets, addCabinet, updateCabinet, markClean } = useEditorStore();
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationReports, setValidationReports] = useState<Record<string, ValidationReport>>({});
@@ -80,7 +80,7 @@ export function useCabinets(projectId: string) {
       setSaving(true);
       try {
         const cabinet = await apiClient.post<CabinetResponse>(baseUrl(), data);
-        setCabinets([...cabinets, cabinet]);
+        addCabinet(cabinet);
         return cabinet;
       } catch (e: unknown) {
         console.error("Create cabinet failed:", e);
@@ -89,7 +89,7 @@ export function useCabinets(projectId: string) {
         setSaving(false);
       }
     },
-    [selectedRoomId, cabinets, setCabinets]
+    [selectedRoomId, addCabinet]
   );
 
   // Called by the properties panel after debounce fires.
@@ -121,12 +121,12 @@ export function useCabinets(projectId: string) {
       if (!selectedRoomId) return;
       try {
         await apiClient.delete(baseUrl(cabinetId));
-        setCabinets(cabinets.filter((c) => c.id !== cabinetId));
+        setCabinets(useEditorStore.getState().cabinets.filter((c) => c.id !== cabinetId));
       } catch (e: unknown) {
         console.error("Delete cabinet failed:", e);
       }
     },
-    [selectedRoomId, cabinets, setCabinets]
+    [selectedRoomId, setCabinets]
   );
 
   const validate = useCallback(

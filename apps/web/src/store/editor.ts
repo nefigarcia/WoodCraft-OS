@@ -13,6 +13,7 @@ interface EditorState {
   setRooms: (rooms: Room[]) => void;
   selectRoom: (roomId: string | null) => void;
   setCabinets: (cabinets: Cabinet[]) => void;
+  addCabinet: (cabinet: Cabinet) => void;
   selectCabinet: (cabinetId: string | null) => void;
   updateCabinet: (id: string, patch: Partial<Cabinet>) => void;
   markDirty: () => void;
@@ -34,6 +35,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   selectRoom: (selectedRoomId) => set({ selectedRoomId }),
 
   setCabinets: (cabinets) => set({ cabinets }),
+
+  addCabinet: (cabinet) =>
+    set((state) => ({ cabinets: [...state.cabinets, cabinet] })),
 
   selectCabinet: (selectedCabinetId) => set({ selectedCabinetId }),
 

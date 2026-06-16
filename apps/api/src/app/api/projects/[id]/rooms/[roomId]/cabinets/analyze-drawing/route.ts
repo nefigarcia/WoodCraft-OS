@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { GoogleGenAI, Type, FunctionCallingConfigMode } from "@google/genai";
+import OpenAI from "openai";
+
 import { prisma } from "@/lib/prisma";
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
@@ -20,38 +21,45 @@ export interface DrawingAnalysis {
   confidence: "high" | "medium" | "low";
 }
 
+// PDFs are not supported by the OpenAI vision API — images only.
 const ALLOWED_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
   "image/gif",
-  "application/pdf",
 ]);
 
-function getGenAI() {
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
-async function analyzeWithGemini(
+async function analyzeWithOpenAI(
   fileBytes: Uint8Array,
   mimeType: string
 ): Promise<DrawingAnalysis> {
-  const ai = getGenAI();
+  const client = getOpenAI();
+  const base64 = Buffer.from(fileBytes).toString("base64");
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [
+  const response = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: "You are a cabinet manufacturing expert. Analyze drawings and extract cabinet specifications by calling the extract_cabinet_specs function.",
+      },
       {
         role: "user",
-        parts: [
+        content: [
           {
-            inlineData: {
-              mimeType,
-              data: Buffer.from(fileBytes).toString("base64"),
+            type: "image_url",
+            image_url: {
+              url: `data:${mimeType};base64,${base64}`,
+              detail: "high",
             },
           },
           {
-            text: `You are a cabinet manufacturing expert. Analyze this drawing, sketch, photo, or blueprint and extract the cabinet specifications. Call extract_cabinet_specs with your findings.
+            type: "text",
+            text: `Analyze this drawing, sketch, photo, or blueprint and extract the cabinet specifications. Call extract_cabinet_specs with your findings.
 
 If dimensions are explicitly labeled in the image, use them directly (high confidence).
 If not, estimate from proportions and typical standards:
@@ -63,84 +71,57 @@ If not, estimate from proportions and typical standards:
 
 Set confidence to:
   "high"   — dimensions are explicitly labeled
-  "medium" — estimated from visible scale, proportions, or context clues
+  "medium" — estimated from visible scale or proportions
   "low"    — mostly guessed from cabinet type alone
 
-In the notes field, briefly describe what you saw and any caveats.`,
+Describe what you saw and any caveats in the notes field.`,
           },
         ],
       },
     ],
-    config: {
-      tools: [
-        {
-          functionDeclarations: [
-            {
-              name: "extract_cabinet_specs",
-              description: "Extract cabinet specifications from a drawing or image",
-              parameters: {
-                type: Type.OBJECT,
-                properties: {
-                  type: {
-                    type: Type.STRING,
-                    enum: ["base", "wall", "tall", "corner", "island"],
-                    description: "Cabinet type inferred from the image",
-                  },
-                  width: {
-                    type: Type.NUMBER,
-                    description: "Width in millimeters",
-                  },
-                  height: {
-                    type: Type.NUMBER,
-                    description: "Height in millimeters",
-                  },
-                  depth: {
-                    type: Type.NUMBER,
-                    description: "Depth in millimeters",
-                  },
-                  parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                      doorCount:   { type: Type.NUMBER, description: "Number of doors" },
-                      drawerCount: { type: Type.NUMBER, description: "Number of drawers" },
-                      shelfCount:  { type: Type.NUMBER, description: "Number of internal shelves" },
-                    },
-                    required: ["doorCount", "drawerCount", "shelfCount"],
-                  },
-                  notes: {
-                    type: Type.STRING,
-                    description: "Brief description of what was extracted and any caveats",
-                  },
-                  confidence: {
-                    type: Type.STRING,
-                    enum: ["high", "medium", "low"],
-                    description: "Confidence level for the extracted dimensions",
-                  },
-                },
-                required: ["type", "width", "height", "depth", "parameters", "notes", "confidence"],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "extract_cabinet_specs",
+          description: "Extract cabinet specifications from a drawing or image",
+          parameters: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["base", "wall", "tall", "corner", "island"],
+                description: "Cabinet type inferred from the image",
               },
+              width:  { type: "number", description: "Width in millimeters" },
+              height: { type: "number", description: "Height in millimeters" },
+              depth:  { type: "number", description: "Depth in millimeters" },
+              parameters: {
+                type: "object",
+                properties: {
+                  doorCount:   { type: "number", description: "Number of doors" },
+                  drawerCount: { type: "number", description: "Number of drawers" },
+                  shelfCount:  { type: "number", description: "Number of internal shelves" },
+                },
+                required: ["doorCount", "drawerCount", "shelfCount"],
+              },
+              notes:      { type: "string", description: "Brief description of what was extracted and any caveats" },
+              confidence: { type: "string", enum: ["high", "medium", "low"] },
             },
-          ],
-        },
-      ],
-      toolConfig: {
-        functionCallingConfig: {
-          mode: FunctionCallingConfigMode.ANY,
-          allowedFunctionNames: ["extract_cabinet_specs"],
+            required: ["type", "width", "height", "depth", "parameters", "notes", "confidence"],
+          },
         },
       },
-    },
+    ],
+    tool_choice: { type: "function", function: { name: "extract_cabinet_specs" } },
   });
 
-  const functionCall = response.candidates?.[0]?.content?.parts?.find(
-    (p) => p.functionCall
-  )?.functionCall;
-
-  if (!functionCall || functionCall.name !== "extract_cabinet_specs") {
-    throw new Error("Gemini did not return a function call");
+  const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+  if (!toolCall || toolCall.type !== "function" || toolCall.function.name !== "extract_cabinet_specs") {
+    throw new Error("OpenAI did not return a function call");
   }
 
-  return functionCall.args as unknown as DrawingAnalysis;
+  return JSON.parse(toolCall.function.arguments) as DrawingAnalysis;
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
@@ -157,17 +138,17 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (!file) return apiError("No file provided", 400);
   if (!ALLOWED_TYPES.has(file.type))
-    return apiError("Unsupported file type. Use JPEG, PNG, WebP, or PDF.", 400);
-  if (file.size > 10 * 1024 * 1024)
-    return apiError("File too large. Maximum size is 10 MB.", 400);
+    return apiError("Unsupported file type. Use JPEG, PNG, WebP, or GIF.", 400);
+  if (file.size > 20 * 1024 * 1024)
+    return apiError("File too large. Maximum size is 20 MB.", 400);
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
   let result: DrawingAnalysis;
   try {
-    result = await analyzeWithGemini(bytes, file.type);
+    result = await analyzeWithOpenAI(bytes, file.type);
   } catch (err) {
-    console.error("[analyze-drawing] Gemini error:", err);
+    console.error("[analyze-drawing] OpenAI error:", err);
     return apiError("AI analysis service is unavailable. Try again later.", 503, "AI_UNAVAILABLE");
   }
 
