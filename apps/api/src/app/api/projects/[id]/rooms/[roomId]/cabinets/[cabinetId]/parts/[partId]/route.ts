@@ -42,20 +42,21 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const parsed = parseBody(updatePartSchema, body);
   if (!parsed.success) return apiError(parsed.error, 422, "VALIDATION_ERROR");
 
+  const d = parsed.data;
   const updated = await prisma.cabinetPart.update({
     where: { id: params.partId },
     data: {
-      ...(parsed.data.name !== undefined && { name: parsed.data.name }),
-      ...(parsed.data.partType !== undefined && { partType: parsed.data.partType }),
-      ...(parsed.data.width !== undefined && { width: parsed.data.width }),
-      ...(parsed.data.height !== undefined && { height: parsed.data.height }),
-      ...(parsed.data.thickness !== undefined && { thickness: parsed.data.thickness }),
-      ...(parsed.data.quantity !== undefined && { quantity: parsed.data.quantity }),
-      ...(parsed.data.materialId !== undefined && { materialId: parsed.data.materialId }),
-      ...(parsed.data.grainDir !== undefined && { grainDir: parsed.data.grainDir }),
-      ...(parsed.data.edgeBanding !== undefined && { edgeBanding: parsed.data.edgeBanding ?? undefined }),
-      ...(parsed.data.cutParams !== undefined && { cutParams: parsed.data.cutParams ?? undefined }),
-      ...(parsed.data.assemblyGroup !== undefined && { assemblyGroup: parsed.data.assemblyGroup }),
+      ...(d.name          !== undefined ? { name:          d.name }          : {}),
+      ...(d.partType      !== undefined ? { partType:      d.partType }      : {}),
+      ...(d.width         !== undefined ? { width:         d.width }         : {}),
+      ...(d.height        !== undefined ? { height:        d.height }        : {}),
+      ...(d.thickness     !== undefined ? { thickness:     d.thickness }     : {}),
+      ...(d.quantity      !== undefined ? { quantity:      d.quantity }      : {}),
+      ...(d.materialId    !== undefined ? { materialId:    d.materialId }    : {}),
+      ...(d.grainDir      !== undefined ? { grainDir:      d.grainDir }      : {}),
+      ...(d.edgeBanding   !== undefined ? { edgeBanding:   d.edgeBanding ?? undefined }  : {}),
+      ...(d.cutParams     !== undefined ? { cutParams:     d.cutParams ?? undefined }     : {}),
+      ...(d.assemblyGroup !== undefined ? { assemblyGroup: d.assemblyGroup } : {}),
     },
   });
 
