@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@woodcraft/db";
 import { getContext } from "@/lib/context";
 import { parseBody } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
@@ -43,21 +44,31 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!parsed.success) return apiError(parsed.error, 422, "VALIDATION_ERROR");
 
   const d = parsed.data;
+  // Use UncheckedUpdateInput so materialId (scalar FK) is accepted directly.
+  const updateData: Prisma.CabinetPartUncheckedUpdateInput = {};
+  if (d.name          !== undefined) updateData.name          = d.name;
+  if (d.partType      !== undefined) updateData.partType      = d.partType;
+  if (d.width         !== undefined) updateData.width         = d.width;
+  if (d.height        !== undefined) updateData.height        = d.height;
+  if (d.thickness     !== undefined) updateData.thickness     = d.thickness;
+  if (d.quantity      !== undefined) updateData.quantity      = d.quantity;
+  if (d.materialId    !== undefined) updateData.materialId    = d.materialId;
+  if (d.grainDir      !== undefined) updateData.grainDir      = d.grainDir;
+  if (d.edgeBanding   !== undefined) {
+    updateData.edgeBanding = d.edgeBanding === null
+      ? Prisma.DbNull
+      : (d.edgeBanding as Prisma.InputJsonValue);
+  }
+  if (d.cutParams     !== undefined) {
+    updateData.cutParams = d.cutParams === null
+      ? Prisma.DbNull
+      : (d.cutParams as Prisma.InputJsonValue);
+  }
+  if (d.assemblyGroup !== undefined) updateData.assemblyGroup = d.assemblyGroup;
+
   const updated = await prisma.cabinetPart.update({
     where: { id: params.partId },
-    data: {
-      ...(d.name          !== undefined ? { name:          d.name }          : {}),
-      ...(d.partType      !== undefined ? { partType:      d.partType }      : {}),
-      ...(d.width         !== undefined ? { width:         d.width }         : {}),
-      ...(d.height        !== undefined ? { height:        d.height }        : {}),
-      ...(d.thickness     !== undefined ? { thickness:     d.thickness }     : {}),
-      ...(d.quantity      !== undefined ? { quantity:      d.quantity }      : {}),
-      ...(d.materialId    !== undefined ? { materialId:    d.materialId }    : {}),
-      ...(d.grainDir      !== undefined ? { grainDir:      d.grainDir }      : {}),
-      ...(d.edgeBanding   !== undefined ? { edgeBanding:   d.edgeBanding ?? undefined }  : {}),
-      ...(d.cutParams     !== undefined ? { cutParams:     d.cutParams ?? undefined }     : {}),
-      ...(d.assemblyGroup !== undefined ? { assemblyGroup: d.assemblyGroup } : {}),
-    },
+    data: updateData,
   });
 
   return ok(updated);

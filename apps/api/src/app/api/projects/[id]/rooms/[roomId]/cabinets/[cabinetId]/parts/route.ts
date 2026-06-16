@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@woodcraft/db";
 import { getContext } from "@/lib/context";
 import { parseBody } from "@/lib/validate";
 import { apiError, ok } from "@/lib/errors";
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       materialId: parsed.data.materialId ?? null,
       grainDir: parsed.data.grainDir ?? null,
       edgeBanding: parsed.data.edgeBanding ?? undefined,
-      cutParams: parsed.data.cutParams ?? undefined,
+      cutParams: parsed.data.cutParams == null ? undefined : (parsed.data.cutParams as Prisma.InputJsonValue),
       assemblyGroup: parsed.data.assemblyGroup ?? null,
     },
   });
