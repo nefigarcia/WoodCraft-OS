@@ -22,6 +22,7 @@ export interface SketchCabinet {
   height: number;
   depth: number;
   posX: number;
+  posY: number;
   posZ: number;
   wallSide: WallSide;
   parameters: {
@@ -37,6 +38,7 @@ export interface SketchCabinet {
 
 export interface SketchToCadResult {
   cabinets: SketchCabinet[];
+  roomType: string;
   roomDimensions: { width: number; depth: number } | null;
   confidence: "high" | "medium" | "low";
   sketchNotes: string[];
@@ -62,64 +64,95 @@ async function analyzeSketch(
   const base64 = Buffer.from(fileBytes).toString("base64");
 
   const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: [
       {
         role: "system",
-        content: "You are an expert kitchen cabinet designer and CAD technician. Extract complete cabinet layouts from kitchen sketches and floor plans by calling extract_full_kitchen.",
+        content: `You are an expert interior designer and millwork/cabinetry specialist.
+You analyze hand-drawn sketches, napkin drawings, and floor plans of ANY room type and extract built-in furniture and cabinet layouts with precise positions.
+Always call extract_room_layout with your complete findings.`,
       },
       {
         role: "user",
         content: [
           {
             type: "image_url",
-            image_url: {
-              url: `data:${mimeType};base64,${base64}`,
-              detail: "high",
-            },
+            image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
           },
           {
             type: "text",
-            text: `Analyze this kitchen sketch or floor plan and extract ALL cabinets and appliances with their exact floor-plan positions.
+            text: `Carefully analyze this sketch and extract EVERY cabinet, unit, and built-in element with their exact floor-plan positions.
 
-COORDINATE SYSTEM (looking straight down at the floor plan):
-  Origin (0,0) = back-left corner of the kitchen (where back wall meets left wall)
-  X+ = rightward along the back wall
-  Z+ = forward into the room (away from the back wall)
+STEP 1 — IDENTIFY ROOM TYPE
+Read any text labels in the sketch (e.g. "living room", "kitchen", "bedroom", "office", "dining room").
+The roomType field MUST reflect what is written or drawn — never default to "kitchen" unless it says so.
 
-POSITION RULES:
-  posX = distance in mm from the origin to the LEFT edge of the cabinet footprint
-  posZ = distance in mm from the back wall to the BACK edge of the cabinet footprint
-  - Back wall cabinets → posZ = 0
-  - Left wall cabinets → posX = 0
-  - Right wall cabinets → posX = (room width) - (cabinet depth)
-  - Island → calculate posX and posZ from labeled clearances
-  - wallSide: "back" | "left" | "right" | "island" | "none"
+STEP 2 — READ ALL LABELED DIMENSIONS
+Convert to mm: 1 inch = 25.4 mm · 1 foot = 304.8 mm
+Use every labeled number — widths, heights, depths, clearances — as the primary source of truth.
 
-DIMENSION RULES (1" = 25.4mm, 1' = 304.8mm):
-  - Sink base (sink_base):  914mm W (36") × 876mm H × 610mm D
-  - Dishwasher (base):      610mm W (24") × 876mm H × 610mm D
-  - Range/Oven (base):      762mm W (30") × 876mm H × 610mm D
-  - Refrigerator (tall):    914mm W (36") × 1981mm H × 686mm D (27")
-  - Upper/Wall cabs (wall): match base width × 762mm H × 305mm D
-  - Standard base cabs:     varies × 876mm H × 610mm D
-  - Island (island):        use labeled dimensions
+STEP 3 — COORDINATE SYSTEM (top-down floor-plan view)
+  Origin (0, 0, 0) = back-left corner of the room, at floor level
+  X+ = right along the back wall
+  Y+ = upward
+  Z+ = forward into the room (away from back wall)
 
-IMPORTANT: For LEFT WALL cabinets, 'width' runs ALONG the wall (Z direction) and 'depth' goes INTO the room (X direction).
+  posX = mm from origin to LEFT edge of the unit's footprint
+  posY = mm from floor to BOTTOM of the unit (0 for floor-level units)
+        · All base / tall / drawer / island units → posY = 0
+        · Upper units that rest ON TOP of lower units → posY = height of the lower unit they sit on
+        · Do NOT use 1371 mm for living room upper shelves — use the actual stacked height
+        · Kitchen wall cabinets at standard 54" AFF → posY = 1371
+  posZ = mm from back wall to BACK edge of the unit's footprint
+        · Back-wall units  → posZ = 0
+        · Left-wall units  → posX = 0, width runs along wall (Z axis), depth into room (X axis)
+        · Right-wall units → posX = roomWidth − unitDepth
+        · Freestanding/island → calculate from proportions and clearances
 
-Use labeled dimensions when present (high confidence), otherwise estimate from proportions.
+STEP 3b — ENFORCE EXACT POSITION CHAINING (no gaps, no overlaps)
+  For units along the same wall, posX values MUST chain perfectly:
+    unit[0].posX = 0
+    unit[1].posX = unit[0].posX + unit[0].width
+    unit[2].posX = unit[1].posX + unit[1].width  …and so on
+  Verify: sum of all widths along a wall = room width (or the run length).
+  For symmetric designs (e.g. left-tower + center + right-tower):
+    · Left and right towers MUST have equal width and depth
+    · rightTower.posX = roomWidth − rightTower.width
+    · centerUnit.posX = leftTower.width
+    · centerUnit.width = roomWidth − leftTower.width − rightTower.width
 
-For sketchNotes, provide DETAILED observations — aim for 6–10 bullet points covering:
-  1. Overall kitchen layout type (L-shape, U-shape, galley, island, etc.)
-  2. Every labeled dimension found in the sketch (counter run lengths, clearances, island size)
-  3. All appliance positions and their sizes
-  4. Aisle/clearance dimensions noted
-  5. Upper cabinet mounting height if noted (A.F.F.)
-  6. Countertop height if noted
-  7. Any special notes written on the sketch (scale, construction notes)
-  8. Total linear footage of base and upper cabinets
-  9. Work triangle or workflow observations
-  10. Any constraints or features that affect cabinet layout`,
+STEP 4 — UNIT TYPES AND DEFAULT DIMENSIONS BY ROOM TYPE
+
+Kitchen:
+  base cabinet     → 876 mm H × 610 mm D
+  wall cabinet     → 762 mm H × 305 mm D
+  tall/pantry      → 2134 mm H × 610 mm D
+  sink base        → 914 mm W × 876 mm H × 610 mm D
+  dishwasher       → 610 mm W × 876 mm H × 610 mm D
+  range/oven       → 762 mm W × 876 mm H × 610 mm D
+  refrigerator     → 914 mm W × 1981 mm H × 686 mm D
+
+Living room / entertainment:
+  TV / media console (base)  → use labeled width × 457 mm H × 457 mm D
+  Entertainment tower (tall) → use labeled width × 2134 mm H × 406 mm D
+  Upper display shelf (wall) → use labeled width × 305 mm H × 305 mm D
+  Drawer unit (drawer_base)  → use labeled width × 610 mm H × 457 mm D
+  A full-height wall-unit tower → type "tall", depth 406 mm
+
+Bedroom:
+  Wardrobe / closet (tall)   → use labeled width × 2134 mm H × 610 mm D
+  Bedside (base)             → 500 mm W × 600 mm H × 450 mm D
+  Dresser (drawer_base)      → use labeled width × 914 mm H × 508 mm D
+
+Office:
+  Desk unit (base)           → use labeled width × 762 mm H × 610 mm D
+  Bookcase (tall)            → use labeled width × 2134 mm H × 305 mm D
+
+STEP 5 — DETECT EVERY COMPONENT SEPARATELY
+If the sketch shows a wall unit made of several sections (e.g. left tower + center TV opening + right tower + base drawers), output EACH section as its own cabinet entry. Do not merge them into one.
+
+STEP 6 — sketchNotes (6–10 sentences)
+Cover: room type identified, every labeled dimension, unit-by-unit description with sizes, any clearances or heights noted, total linear run, and anything special about the design.`,
           },
         ],
       },
@@ -128,34 +161,30 @@ For sketchNotes, provide DETAILED observations — aim for 6–10 bullet points 
       {
         type: "function",
         function: {
-          name: "extract_full_kitchen",
-          description: "Extract all cabinet specs and floor-plan positions from a kitchen sketch",
+          name: "extract_room_layout",
+          description: "Extract all built-in units and their floor-plan positions from a room sketch",
           parameters: {
             type: "object",
             properties: {
+              roomType: {
+                type: "string",
+                description: "Room type exactly as labeled in the sketch (e.g. 'living room', 'kitchen', 'bedroom'). Never default to 'kitchen' unless labeled.",
+              },
               cabinets: {
                 type: "array",
-                description: "All cabinets and appliance bays in the sketch",
+                description: "Every cabinet, unit, or built-in element detected — output separate entries for each distinct section",
                 items: {
                   type: "object",
                   properties: {
-                    name:   { type: "string" },
+                    name:   { type: "string", description: "Descriptive name matching the sketch (e.g. 'Left Tower', 'TV Opening', 'Drawer Base')" },
                     type:   { type: "string", enum: ["base","wall","tall","corner","drawer_base","sink_base","island"] },
-                    width:  { type: "number", description: "Width in mm" },
+                    width:  { type: "number", description: "Width in mm — use labeled dimension if present" },
                     height: { type: "number", description: "Height in mm" },
                     depth:  { type: "number", description: "Depth in mm" },
-                    posX: {
-                      type: "number",
-                      description: "Distance in mm from back-left origin to LEFT edge of cabinet footprint",
-                    },
-                    posZ: {
-                      type: "number",
-                      description: "Distance in mm from back wall to BACK edge of cabinet footprint (0 for back-wall cabs)",
-                    },
-                    wallSide: {
-                      type: "string",
-                      enum: ["back", "left", "right", "island", "none"],
-                    },
+                    posX:   { type: "number", description: "mm from back-left origin to LEFT edge of unit footprint. Must chain exactly with adjacent units (no gaps, no overlaps)." },
+                    posY:   { type: "number", description: "mm from floor to BOTTOM of unit. 0 for all floor-level units. For upper units resting on lower ones, set to the height of the unit below. Do NOT default to 1371 for living room shelves." },
+                    posZ:   { type: "number", description: "mm from back wall to BACK edge of footprint (0 for back-wall units)" },
+                    wallSide: { type: "string", enum: ["back","left","right","island","none"] },
                     parameters: {
                       type: "object",
                       properties: {
@@ -169,7 +198,7 @@ For sketchNotes, provide DETAILED observations — aim for 6–10 bullet points 
                     },
                     notes: { type: "string" },
                   },
-                  required: ["name","type","width","height","depth","posX","posZ","wallSide","parameters","notes"],
+                  required: ["name","type","width","height","depth","posX","posY","posZ","wallSide","parameters","notes"],
                 },
               },
               roomDimensions: {
@@ -178,28 +207,25 @@ For sketchNotes, provide DETAILED observations — aim for 6–10 bullet points 
                   width: { type: "number", description: "Room width in mm (along back wall)" },
                   depth: { type: "number", description: "Room depth in mm (front to back)" },
                 },
-                required: ["width", "depth"],
+                required: ["width","depth"],
               },
-              confidence: {
-                type: "string",
-                enum: ["high", "medium", "low"],
-              },
+              confidence: { type: "string", enum: ["high","medium","low"] },
               sketchNotes: {
                 type: "array",
                 items: { type: "string" },
-                description: "Detailed observations from the sketch — 6 to 10 items covering: layout type, every labeled dimension, appliance positions and sizes, aisle clearances, mounting heights (A.F.F.), countertop notes, scale/construction notes, total linear footage, workflow observations, and any layout constraints. Each item is one complete sentence.",
+                description: "6–10 sentences: room type, every labeled dimension, each unit described with size, clearances, heights, total linear run, and any design notes.",
               },
             },
-            required: ["cabinets", "confidence", "sketchNotes"],
+            required: ["roomType","cabinets","confidence","sketchNotes"],
           },
         },
       },
     ],
-    tool_choice: { type: "function", function: { name: "extract_full_kitchen" } },
+    tool_choice: { type: "function", function: { name: "extract_room_layout" } },
   });
 
   const toolCall = response.choices[0]?.message?.tool_calls?.[0];
-  if (!toolCall || toolCall.type !== "function" || toolCall.function.name !== "extract_full_kitchen") {
+  if (!toolCall || toolCall.type !== "function" || toolCall.function.name !== "extract_room_layout") {
     throw new Error("OpenAI did not return a function call");
   }
 

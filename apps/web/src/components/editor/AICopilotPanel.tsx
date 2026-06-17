@@ -22,6 +22,7 @@ export interface AICabinetSpec {
   depth: number;
   /** Floor-plan position from the sketch (mm from back-left origin) */
   posX?: number;
+  posY?: number;
   posZ?: number;
   /** Which wall this cabinet runs against — drives orientation in 3D */
   wallSide?: "back" | "left" | "right" | "island" | "none";
@@ -37,6 +38,8 @@ export interface AICabinetSpec {
 }
 
 interface CopilotResult {
+  roomType: string;
+  designConcept: string;
   requirements: string[];
   cabinetList: AICabinetSpec[];
   roomLogic: {
@@ -69,12 +72,12 @@ export interface Props {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STEPS = [
-  "Gathering requirements",
-  "Creating structured cabinet data",
-  "Generating dimensions",
-  "Building cabinet list",
+  "Analyzing design request",
+  "Detecting room type & style",
+  "Generating layout & dimensions",
+  "Building unit list with positions",
   "Creating room logic",
-  "Applying standards",
+  "Applying construction standards",
   "Writing design notes",
 ];
 
@@ -205,6 +208,70 @@ function CabCard({ cab }: { cab: AICabinetSpec }) {
   );
 }
 
+// ── Front-elevation mini-preview ─────────────────────────────────────────────
+
+function ElevationPreview({
+  cabinets,
+  roomWidth,
+}: {
+  cabinets: AICabinetSpec[];
+  roomWidth: number;
+}) {
+  const wall = cabinets.filter(
+    (c) => !c.wallSide || c.wallSide === "back" || c.wallSide === "none" || c.wallSide === "island"
+  );
+  if (!wall.length) return null;
+
+  const PREVIEW_W = 340;
+  const PREVIEW_H = 80;
+  const maxH = Math.max(...wall.map((c) => (c.posY ?? 0) + c.height), 2440);
+  const sx = PREVIEW_W / roomWidth;
+  const sy = PREVIEW_H / maxH;
+
+  return (
+    <div
+      className="relative rounded-b-xl overflow-hidden"
+      style={{ height: PREVIEW_H, background: "#07090b" }}
+    >
+      {/* Floor line */}
+      <div
+        className="absolute bottom-0 left-0 right-0"
+        style={{ height: 1, background: "#1E2226" }}
+      />
+      {wall.map((c, i) => {
+        const col = TYPE_COLOR[c.type]?.text ?? "#6b7280";
+        const x  = (c.posX ?? 0) * sx;
+        const w  = Math.max(c.width * sx - 1, 2);
+        const h  = c.height * sy;
+        const y  = PREVIEW_H - ((c.posY ?? 0) + c.height) * sy;
+        return (
+          <div
+            key={i}
+            title={c.name}
+            className="absolute"
+            style={{
+              left: x, top: y, width: w, height: h,
+              background: col + "20",
+              border: `1px solid ${col}55`,
+              borderRadius: 2,
+            }}
+          >
+            {/* Door/drawer lines hint */}
+            {w > 18 && h > 14 && (
+              <div
+                className="absolute inset-x-1 inset-y-1 opacity-30"
+                style={{ borderBottom: `1px solid ${col}`, borderTop: `1px solid ${col}` }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Result card ───────────────────────────────────────────────────────────────
+
 function ResultView({
   result,
   onAdd,
@@ -213,119 +280,122 @@ function ResultView({
   onAdd: () => Promise<void>;
 }) {
   const [state, setState] = useState<"idle" | "adding" | "done">("idle");
+  const [expanded, setExpanded] = useState<"units" | "notes" | "standards" | null>("units");
 
   async function handle() {
     setState("adding");
-    try {
-      await onAdd();
-      setState("done");
-    } catch {
-      setState("idle");
-    }
+    try { await onAdd(); setState("done"); }
+    catch { setState("idle"); }
   }
 
+  const ROOM_ICON: Record<string, string> = {
+    kitchen: "🍳", "living room": "🛋️", bedroom: "🛏️",
+    "home office": "💻", office: "💻", bathroom: "🚿",
+    "dining room": "🍽️", garage: "🔧",
+  };
+  const icon = ROOM_ICON[result.roomType?.toLowerCase() ?? ""] ?? "🏠";
+
   return (
-    <div className="space-y-4">
-      {/* Room logic */}
+    <div className="space-y-3">
+
+      {/* ── Design concept card ─── */}
       <div
-        className="rounded-lg p-3"
-        style={{ background: "#c8852a0d", border: "1px solid #c8852a33" }}
+        className="rounded-xl overflow-hidden"
+        style={{ border: "1px solid #c8852a44" }}
       >
-        <p className="text-[10px] text-[#c8852a] font-bold uppercase tracking-widest mb-1">
-          Room Logic
-        </p>
-        <p className="text-sm text-white font-semibold">{result.roomLogic.layout}</p>
-        <p className="text-xs text-gray-400 mt-0.5">
-          {mm2in(result.roomLogic.suggestedRoomWidth)} ×{" "}
-          {mm2in(result.roomLogic.suggestedRoomDepth)}
-        </p>
+        {/* Header */}
+        <div style={{ background: "linear-gradient(135deg, #c8852a18 0%, #3b82f60a 100%)", padding: "12px 14px 10px" }}>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5" style={{ color: "#c8852a" }}>
+              <span>{icon}</span>
+              {result.roomType || "Design"}
+            </span>
+            <span className="text-[10px] text-gray-500">
+              {mm2in(result.roomLogic.suggestedRoomWidth)} × {mm2in(result.roomLogic.suggestedRoomDepth)}
+            </span>
+          </div>
+          <p className="text-sm text-white font-semibold leading-snug">{result.roomLogic.layout}</p>
+          {result.designConcept && (
+            <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">{result.designConcept}</p>
+          )}
+        </div>
+
+        {/* Front elevation preview */}
+        <ElevationPreview
+          cabinets={result.cabinetList}
+          roomWidth={result.roomLogic.suggestedRoomWidth}
+        />
       </div>
 
-      {/* Requirements */}
-      <div>
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">
-          Requirements
-        </p>
-        <ul className="space-y-1.5">
+      {/* ── Requirements as tags ── */}
+      {result.requirements.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
           {result.requirements.map((r, i) => (
-            <li key={i} className="flex items-start gap-2 text-xs text-gray-300">
-              <span className="text-green-400 flex-shrink-0 mt-0.5">✓</span>
-              {r}
-            </li>
+            <span
+              key={i}
+              className="text-[10px] px-2 py-0.5 rounded-full"
+              style={{ background: "#22c55e14", color: "#86efac", border: "1px solid #22c55e28" }}
+            >
+              ✓ {r}
+            </span>
           ))}
-        </ul>
-      </div>
-
-      {/* Cabinet list */}
-      <div>
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">
-          Cabinet List ({result.cabinetList.length})
-        </p>
-        <div className="space-y-1.5">
-          {result.cabinetList.map((cab, i) => (
-            <CabCard key={i} cab={cab} />
-          ))}
-        </div>
-      </div>
-
-      {/* Standards */}
-      {result.standards.length > 0 && (
-        <div>
-          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">
-            Standards
-          </p>
-          <ul className="space-y-1">
-            {result.standards.map((s, i) => (
-              <li key={i} className="text-xs text-gray-400 flex gap-2">
-                <span className="text-gray-600 flex-shrink-0">—</span>
-                {s}
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 
-      {/* Design notes */}
-      {result.designNotes.length > 0 && (
-        <div>
-          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">
-            Design Notes
-          </p>
-          <ul className="space-y-1">
-            {result.designNotes.map((n, i) => (
-              <li key={i} className="text-xs text-gray-400 flex gap-2">
-                <span className="text-[#c8852a] flex-shrink-0">→</span>
-                {n}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* ── Accordion sections ─── */}
+      {(
+        [
+          { key: "units",     label: `Units (${result.cabinetList.length})` },
+          { key: "notes",     label: "Design Notes" },
+          { key: "standards", label: "Standards" },
+        ] as const
+      ).map(({ key, label }) => (
+        <div key={key} style={{ border: "1px solid #1E2226", borderRadius: 8, overflow: "hidden" }}>
+          <button
+            className="w-full flex items-center justify-between px-3 py-2 text-left transition-colors"
+            style={{ background: expanded === key ? "#111417" : "#0D0F12" }}
+            onClick={() => setExpanded(expanded === key ? null : key)}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</span>
+            <span className="text-gray-600 text-[10px]">{expanded === key ? "▲" : "▼"}</span>
+          </button>
 
-      {/* Add to room CTA */}
+          {expanded === key && (
+            <div className="px-3 pb-3 pt-1 space-y-1.5" style={{ background: "#0D0F12" }}>
+              {key === "units" && result.cabinetList.map((cab, i) => (
+                <CabCard key={i} cab={cab} />
+              ))}
+              {key === "notes" && result.designNotes.map((n, i) => (
+                <div key={i} className="flex gap-2 text-xs text-gray-400">
+                  <span style={{ color: "#c8852a" }} className="flex-shrink-0">→</span>{n}
+                </div>
+              ))}
+              {key === "standards" && result.standards.map((s, i) => (
+                <div key={i} className="flex gap-2 text-xs text-gray-400">
+                  <span className="text-gray-600 flex-shrink-0">—</span>{s}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* ── Add to 3D CTA ── */}
       <button
         onClick={handle}
         disabled={state !== "idle"}
         className="w-full py-2.5 rounded-lg text-sm font-bold transition-all"
         style={{
-          background:
-            state === "done"
-              ? "#22c55e22"
-              : state === "adding"
-              ? "#c8852a66"
-              : "#c8852a",
+          background: state === "done" ? "#22c55e22" : state === "adding" ? "#c8852a66" : "#c8852a",
           color: state === "done" ? "#22c55e" : "#fff",
-          border:
-            state === "done"
-              ? "1px solid #22c55e44"
-              : "1px solid transparent",
+          border: state === "done" ? "1px solid #22c55e44" : "1px solid transparent",
         }}
       >
         {state === "done"
-          ? `✓ Added ${result.cabinetList.length} cabinets`
+          ? `✓ Added ${result.cabinetList.length} units to 3D`
           : state === "adding"
-          ? "Adding cabinets…"
-          : `+ Add ${result.cabinetList.length} cabinets to room`}
+          ? "Adding to 3D…"
+          : `Add ${result.cabinetList.length} units to 3D`}
       </button>
     </div>
   );
@@ -333,6 +403,7 @@ function ResultView({
 
 interface SketchResult {
   cabinets: AICabinetSpec[];
+  roomType?: string;
   roomDimensions: { width: number; depth: number } | null;
   confidence: "high" | "medium" | "low";
   sketchNotes: string[];
@@ -359,7 +430,12 @@ function SketchResultView({
 
   return (
     <div className="mt-3 space-y-3">
-      {/* Confidence + room dims */}
+      {/* Room type + confidence + dims */}
+      {result.roomType && (
+        <p className="text-xs font-semibold capitalize" style={{ color: "#c8852a" }}>
+          {result.roomType}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <span
           className="text-[10px] font-bold uppercase px-2 py-0.5 rounded"
@@ -703,25 +779,26 @@ export default function AICopilotPanel({
                     ✦
                   </span>
                   <p className="text-sm text-gray-300 font-semibold mb-1">
-                    Describe your kitchen design
+                    Describe any room design
                   </p>
                   <p className="text-xs text-gray-600 leading-relaxed">
-                    e.g. "Create a modern white oak kitchen with 10 ft island, double oven,
-                    hidden pantry, shaker doors"
+                    e.g. "Modern white oak kitchen with 10 ft island" · "Living room
+                    entertainment wall with TV alcove and flanking towers" · "Home office
+                    with built-in bookcase and floating desk"
                   </p>
                   <div
                     className="mt-6 rounded-lg p-3 text-left"
                     style={{ background: "#0D0F12", border: "1px solid #1E2226" }}
                   >
                     <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">
-                      The AI will generate
+                      AI generates
                     </p>
                     {[
-                      "Requirements list",
-                      "Structured cabinet data",
+                      "Room type detection",
+                      "Design concept & style",
+                      "Front-elevation preview",
+                      "Full unit list with positions",
                       "Exact dimensions (mm + inches)",
-                      "Full cabinet list",
-                      "Room layout logic",
                       "Construction standards",
                       "Design notes",
                     ].map((item) => (
@@ -837,7 +914,7 @@ export default function AICopilotPanel({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKey}
-                  placeholder="Describe your kitchen design…"
+                  placeholder="Describe any room design…"
                   disabled={busy}
                   rows={2}
                   className="flex-1 resize-none text-sm text-white placeholder-gray-700 rounded-lg px-3 py-2 outline-none"

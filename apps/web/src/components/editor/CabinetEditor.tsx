@@ -207,7 +207,8 @@ export default function CabinetEditor({ projectId }: Props) {
         // ── Sketch path: AI-supplied floor-plan coordinates ──────────────
         posX = spec.posX;
         posZ = spec.posZ;
-        posY = spec.type === "wall" ? 1371 : 0; // 54" AFF for uppers
+        // Use AI-provided posY when available; fall back to 1371 only for kitchen wall cabs
+        posY = spec.posY ?? (spec.type === "wall" ? 1371 : 0);
 
         // Left/right wall cabinets need width ↔ depth swap so the box
         // renders with its length running along the wall (Z axis) and its
