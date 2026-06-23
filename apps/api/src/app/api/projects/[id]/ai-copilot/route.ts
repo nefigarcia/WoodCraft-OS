@@ -30,6 +30,7 @@ interface AICabinetSpec {
 export interface CopilotResult {
   roomType: string;
   designConcept: string;
+  primaryFinish: string;
   imageUrl?: string;
   requirements: string[];
   cabinetList: AICabinetSpec[];
@@ -55,16 +56,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const client = getOpenAI();
 
-  // Build the image prompt from the raw user request so both calls can run in parallel.
-  const imagePrompt =
-    `Photorealistic interior design render: ${body.prompt}. ` +
-    `High-end custom built-in cabinetry and millwork, beautiful natural lighting, ` +
-    `professional architectural photography, showroom quality. No text or labels in the image.`;
+  // Finish style → human-readable description for the image prompt
+  const FINISH_VISUAL: Record<string, string> = {
+    light_oak:     "light oak wood",
+    natural_wood:  "warm natural wood",
+    dark_walnut:   "rich dark walnut",
+    white_painted: "crisp white painted",
+    modern_gloss:  "high-gloss dark lacquer",
+    metal:         "brushed metal",
+    glass:         "natural wood with glass accents",
+  };
 
   try {
-    // ── Run design generation + image generation in parallel ─────────────────
-    const [designResponse, imageResponse] = await Promise.all([
-      client.chat.completions.create({
+    // ── Step 1: Generate design text first so we can use primaryFinish in the image prompt ──
+    const designResponse = await client.chat.completions.create({
         model: "gpt-4o",
         messages: [
           {
@@ -131,7 +136,28 @@ STEP 5 — EXACT POSITION CHAINING (no gaps, no overlaps)
     centerUnit.posX = leftUnit.width
     centerUnit.width = roomWidth − leftUnit.width − rightUnit.width
 
-STEP 6 — COVER ALL COMPONENTS SEPARATELY
+STEP 6 — FINISH CONSISTENCY (CRITICAL)
+  Choose ONE primaryFinish for ALL non-glass units that best matches the design concept:
+    "light_oak"     → light/blonde/Scandinavian/oak/warm wood look
+    "natural_wood"  → medium brown natural wood tones
+    "dark_walnut"   → dark walnut, espresso, dark stains
+    "white_painted" → painted white, off-white, Shaker white
+    "modern_gloss"  → high-gloss lacquer, contemporary dark/anthracite
+    "metal"         → industrial metal/steel look
+
+  Rules:
+  · Set primaryFinish = the dominant finish for the room.
+  · Every cabinet's parameters.finishStyle MUST equal primaryFinish — EXCEPT fish tanks,
+    aquariums, and glass display cases which MUST use "glass".
+  · NEVER mix finishes across cabinets unless the user explicitly asked for two-tone.
+
+STEP 7 — RAISED UNIT POSITIONING
+  Fish tanks, aquariums, and wall-mounted feature units are NEVER at posY = 0.
+  A fish tank / aquarium sits ON TOP of a base console/drawer unit.
+  Set its posY = height of the base unit directly below it (e.g. 457 for a TV console).
+  Its type should be "wall" (not "tall"), and it shares the same posX / posZ as the base below.
+
+STEP 8 — COVER ALL COMPONENTS SEPARATELY
   Output each distinct section as its own entry in cabinetList.
   If the design has upper and lower units at the same X position, create two entries with different posY values.`,
           },
@@ -152,6 +178,11 @@ STEP 6 — COVER ALL COMPONENTS SEPARATELY
                   designConcept: {
                     type: "string",
                     description: "1–2 sentence design concept describing style, materials, and layout",
+                  },
+                  primaryFinish: {
+                    type: "string",
+                    enum: ["light_oak","natural_wood","dark_walnut","white_painted","modern_gloss","glass","metal"],
+                    description: "The single dominant finish applied to ALL non-glass cabinets in this design. Every cabinet's finishStyle must equal this value unless it is a fish tank / aquarium (which uses 'glass').",
                   },
                   requirements: {
                     type: "array",
@@ -181,6 +212,11 @@ STEP 6 — COVER ALL COMPONENTS SEPARATELY
                             toeKickHeight:      { type: "number" },
                             constructionMethod: { type: "string" },
                             hingeType:          { type: "string" },
+                            finishStyle: {
+                              type: "string",
+                              enum: ["light_oak","natural_wood","dark_walnut","white_painted","modern_gloss","glass","metal"],
+                              description: "Visual finish that matches the design concept. Use 'glass' for fish tanks, aquariums, or display cases.",
+                            },
                           },
                         },
                         notes: { type: "string" },
@@ -208,26 +244,13 @@ STEP 6 — COVER ALL COMPONENTS SEPARATELY
                     description: "Important clearances, recommendations, and design observations",
                   },
                 },
-                required: ["roomType","designConcept","requirements","cabinetList","roomLogic","standards","designNotes"],
+                required: ["roomType","designConcept","primaryFinish","requirements","cabinetList","roomLogic","standards","designNotes"],
               },
             },
           },
         ],
         tool_choice: { type: "function", function: { name: "generate_room_design" } },
-      }),
-
-      // DALL-E 3 runs in parallel — failure is non-fatal
-      client.images.generate({
-        model: "dall-e-3",
-        prompt: imagePrompt,
-        size: "1792x1024",
-        quality: "standard",
-        n: 1,
-      }).catch((err) => {
-        console.warn("[ai-copilot] image generation failed (non-fatal):", err);
-        return null;
-      }),
-    ]);
+      });
 
     const toolCall = designResponse.choices[0]?.message?.tool_calls?.[0];
     if (!toolCall || toolCall.type !== "function" || toolCall.function.name !== "generate_room_design") {
@@ -235,7 +258,29 @@ STEP 6 — COVER ALL COMPONENTS SEPARATELY
     }
 
     const design = JSON.parse(toolCall.function.arguments) as CopilotResult;
-    const imageUrl = imageResponse?.data?.[0]?.url ?? undefined;
+
+    // ── Step 2: Build image prompt using the actual finish so the render matches the 3D ──
+    const finishDesc = FINISH_VISUAL[design.primaryFinish] ?? "natural wood";
+    const imagePrompt =
+      `Photorealistic interior design render: ${body.prompt}. ` +
+      `${finishDesc} built-in cabinetry and millwork. ` +
+      `Beautiful natural lighting, professional architectural photography, showroom quality. ` +
+      `No text or labels in the image.`;
+
+    // ── Step 3: Generate image (non-fatal) ────────────────────────────────────
+    const imageResponse = await client.images.generate({
+      model: "gpt-image-1",
+      prompt: imagePrompt,
+      size: "1536x1024",
+      quality: "medium",
+      n: 1,
+    }).catch((err) => {
+      console.warn("[ai-copilot] image generation failed (non-fatal):", err);
+      return null;
+    });
+
+    const b64 = imageResponse?.data?.[0]?.b64_json;
+    const imageUrl = b64 ? `data:image/png;base64,${b64}` : undefined;
 
     return ok({ ...design, imageUrl });
   } catch (err) {

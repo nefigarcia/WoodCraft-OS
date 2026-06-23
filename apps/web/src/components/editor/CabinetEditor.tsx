@@ -28,11 +28,25 @@ const PGAP    = 0.002;  // gap between adjacent front panels
 const HDL_T   = 0.008;  // handle bar cross-section
 const HDL_L   = 0.096;  // handle bar length
 
-const WOOD = {
-  carcass: "#3d2e1e", door: "#6b5035", doorSel: "#c8852a",
-  panel: "#523c27",   panelSel: "#d4922e", toe: "#2a2018",
-  handle: "#b4b4b4",  top: "#ddd8cc",
+type Palette = { carcass:string; door:string; doorSel:string; panel:string; panelSel:string; toe:string; handle:string; top:string; };
+
+const PALETTES: Record<string, Palette> = {
+  light_oak:     { carcass:"#a07848", door:"#c49a62", doorSel:"#c8852a", panel:"#8c6438", panelSel:"#d4922e", toe:"#6a4a28", handle:"#d0d0d0", top:"#eae2d0" },
+  natural_wood:  { carcass:"#5a3e28", door:"#7a5538", doorSel:"#c8852a", panel:"#633222", panelSel:"#d4922e", toe:"#3a2415", handle:"#b8b8b8", top:"#ddd8cc" },
+  dark_walnut:   { carcass:"#3d2e1e", door:"#6b5035", doorSel:"#c8852a", panel:"#523c27", panelSel:"#d4922e", toe:"#2a2018", handle:"#b4b4b4", top:"#ddd8cc" },
+  white_painted: { carcass:"#d8d8d8", door:"#f0f0f0", doorSel:"#c8852a", panel:"#c8c8c8", panelSel:"#d4922e", toe:"#b8b8b8", handle:"#888888", top:"#fafaf5" },
+  modern_gloss:  { carcass:"#1c1c2e", door:"#252545", doorSel:"#c8852a", panel:"#1a1a35", panelSel:"#d4922e", toe:"#12121e", handle:"#e0e0e0", top:"#303030" },
+  glass:         { carcass:"#6b5035", door:"#88ccee", doorSel:"#22d3ee", panel:"#0a4060", panelSel:"#38bdf8", toe:"#3d2e1e", handle:"#a07848", top:"#6b5035" },
+  metal:         { carcass:"#252525", door:"#383838", doorSel:"#c8852a", panel:"#1e1e1e", panelSel:"#d4922e", toe:"#151515", handle:"#909090", top:"#444444" },
 };
+
+const DEFAULT_PALETTE = PALETTES.dark_walnut;
+
+function getPalette(finishStyle?: string, name?: string, notes?: string): Palette {
+  const hint = `${name ?? ""} ${notes ?? ""}`.toLowerCase();
+  if (hint.includes("fish tank") || hint.includes("aquarium")) return PALETTES.glass;
+  return PALETTES[finishStyle ?? ""] ?? DEFAULT_PALETTE;
+}
 
 interface FPanel { x: number; y: number; pw: number; ph: number; isDrawer: boolean; }
 
@@ -84,6 +98,9 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
   const hasTop   = ["base","drawer_base","sink_base","island"].includes(type);
   const isIsland = type === "island";
   const toeH     = hasToe ? TOE_H : 0;
+  const isGlass  = String(prm.finishStyle ?? "").includes("glass") ||
+                   `${cabinet.name} ${String(prm.notes ?? "")}`.toLowerCase().includes("fish tank") ||
+                   `${cabinet.name}`.toLowerCase().includes("aquarium");
 
   const panels = useMemo(
     () => buildFrontPanels(w, h, type, doors, drawers),
@@ -95,10 +112,11 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
   const gy = Number(cabinet.posY) / 1000;
   const gz = Number(cabinet.posZ) / 1000;
 
+  const C = getPalette(String(prm.finishStyle ?? ""), cabinet.name, String(prm.notes ?? ""));
   const carcassH = h - toeH;
   const carcassD = d - DOOR_T;
-  const doorCol  = isSelected ? WOOD.doorSel  : WOOD.door;
-  const pnlCol   = isSelected ? WOOD.panelSel : WOOD.panel;
+  const doorCol  = isSelected ? C.doorSel  : C.door;
+  const pnlCol   = isSelected ? C.panelSel : C.panel;
 
   // Countertop: overhang front (and all sides for island)
   const topSideOvh  = isIsland ? TOP_OVI : 0;
@@ -115,14 +133,14 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
       {/* Carcass body — back to front-minus-door-thickness */}
       <mesh position={[w / 2, toeH + carcassH / 2, carcassD / 2]} castShadow receiveShadow>
         <boxGeometry args={[w, carcassH, carcassD]} />
-        <meshStandardMaterial color={WOOD.carcass} roughness={0.8} metalness={0.02} />
+        <meshStandardMaterial color={C.carcass} roughness={0.8} metalness={0.02} />
       </mesh>
 
       {/* Toe-kick board — bottom-front strip */}
       {hasToe && (
         <mesh position={[w / 2, toeH / 2, d - DOOR_T / 2]}>
           <boxGeometry args={[w, toeH, DOOR_T]} />
-          <meshStandardMaterial color={WOOD.toe} roughness={0.9} metalness={0} />
+          <meshStandardMaterial color={C.toe} roughness={0.9} metalness={0} />
         </mesh>
       )}
 
@@ -140,25 +158,38 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
 
         return (
           <group key={i}>
-            {/* Front slab */}
+            {/* Front slab — transparent for glass/aquarium units */}
             <mesh position={[px, py, pzC]} castShadow receiveShadow>
               <boxGeometry args={[p.pw, p.ph, DOOR_T]} />
-              <meshStandardMaterial color={doorCol} roughness={0.6} metalness={0.03} />
+              {isGlass
+                ? <meshStandardMaterial color={doorCol} transparent opacity={0.28} roughness={0.05} metalness={0.15} />
+                : <meshStandardMaterial color={doorCol} roughness={0.6} metalness={0.03} />
+              }
             </mesh>
 
-            {/* Shaker raised centre panel */}
-            {showPanel && (
+            {/* Aquarium water volume — only for glass units */}
+            {isGlass && (
+              <mesh position={[px, py, carcassD / 2]}>
+                <boxGeometry args={[p.pw - 0.04, p.ph - 0.04, carcassD - 0.04]} />
+                <meshStandardMaterial color="#083858" transparent opacity={0.55} roughness={0.1} />
+              </mesh>
+            )}
+
+            {/* Shaker raised centre panel — skip for glass */}
+            {showPanel && !isGlass && (
               <mesh position={[px, py, d + PNL_T / 2]}>
                 <boxGeometry args={[iw, ih, PNL_T]} />
                 <meshStandardMaterial color={pnlCol} roughness={0.65} metalness={0.02} />
               </mesh>
             )}
 
-            {/* Handle bar — horizontal for drawers, vertical for doors */}
-            <mesh position={[hx, hy, d + HDL_T / 2]}>
-              <boxGeometry args={p.isDrawer ? [HDL_L, HDL_T, HDL_T] : [HDL_T, HDL_L, HDL_T]} />
-              <meshStandardMaterial color={WOOD.handle} roughness={0.25} metalness={0.85} />
-            </mesh>
+            {/* Handle bar — skip for glass/aquarium */}
+            {!isGlass && (
+              <mesh position={[hx, hy, d + HDL_T / 2]}>
+                <boxGeometry args={p.isDrawer ? [HDL_L, HDL_T, HDL_T] : [HDL_T, HDL_L, HDL_T]} />
+                <meshStandardMaterial color={C.handle} roughness={0.25} metalness={0.85} />
+              </mesh>
+            )}
           </group>
         );
       })}
@@ -167,7 +198,7 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
       {hasTop && (
         <mesh position={[w / 2, h + TOP_H / 2, topZC]} castShadow receiveShadow>
           <boxGeometry args={[topW, TOP_H, topD]} />
-          <meshStandardMaterial color={WOOD.top} roughness={0.35} metalness={0.05} />
+          <meshStandardMaterial color={C.top} roughness={0.35} metalness={0.05} />
         </mesh>
       )}
     </group>

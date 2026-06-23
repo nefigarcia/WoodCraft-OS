@@ -33,6 +33,7 @@ export interface AICabinetSpec {
     toeKickHeight?: number;
     constructionMethod?: string;
     hingeType?: string;
+    finishStyle?: string;
   };
   notes: string;
 }
@@ -40,6 +41,7 @@ export interface AICabinetSpec {
 interface CopilotResult {
   roomType: string;
   designConcept: string;
+  primaryFinish?: string;
   imageUrl?: string;
   requirements: string[];
   cabinetList: AICabinetSpec[];
@@ -50,6 +52,28 @@ interface CopilotResult {
   };
   standards: string[];
   designNotes: string[];
+}
+
+function isGlassUnit(cab: AICabinetSpec): boolean {
+  const hint = `${cab.name} ${cab.notes ?? ""}`.toLowerCase();
+  return (
+    cab.parameters.finishStyle === "glass" ||
+    hint.includes("fish tank") ||
+    hint.includes("aquarium") ||
+    hint.includes("fish")
+  );
+}
+
+function normalizeFinishes(result: CopilotResult): AICabinetSpec[] {
+  const primary = result.primaryFinish;
+  if (!primary) return result.cabinetList;
+  return result.cabinetList.map((cab) => ({
+    ...cab,
+    parameters: {
+      ...cab.parameters,
+      finishStyle: isGlassUnit(cab) ? "glass" : primary,
+    },
+  }));
 }
 
 interface ChatMsg {
@@ -901,7 +925,7 @@ export default function AICopilotPanel({
                           </div>
                           <ResultView
                             result={msg.result}
-                            onAdd={() => onAddCabinets(msg.result!.cabinetList)}
+                            onAdd={() => onAddCabinets(normalizeFinishes(msg.result!))}
                           />
                         </div>
                       )}
