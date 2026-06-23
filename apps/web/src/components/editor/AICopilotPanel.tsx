@@ -40,6 +40,7 @@ export interface AICabinetSpec {
 interface CopilotResult {
   roomType: string;
   designConcept: string;
+  imageUrl?: string;
   requirements: string[];
   cabinetList: AICabinetSpec[];
   roomLogic: {
@@ -319,6 +320,25 @@ function ResultView({
             <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">{result.designConcept}</p>
           )}
         </div>
+
+        {/* DALL-E concept render */}
+        {result.imageUrl && (
+          <div className="relative overflow-hidden" style={{ background: "#07090b" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={result.imageUrl}
+              alt="AI design concept render"
+              className="w-full object-cover"
+              style={{ maxHeight: 200, display: "block" }}
+            />
+            <span
+              className="absolute bottom-2 right-2 text-[9px] font-semibold px-1.5 py-0.5 rounded"
+              style={{ background: "rgba(0,0,0,0.65)", color: "#9ca3af", backdropFilter: "blur(4px)" }}
+            >
+              AI concept render
+            </span>
+          </div>
+        )}
 
         {/* Front elevation preview */}
         <ElevationPreview

@@ -30,6 +30,7 @@ interface AICabinetSpec {
 export interface CopilotResult {
   roomType: string;
   designConcept: string;
+  imageUrl?: string;
   requirements: string[];
   cabinetList: AICabinetSpec[];
   roomLogic: {
@@ -54,20 +55,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const client = getOpenAI();
 
+  // Build the image prompt from the raw user request so both calls can run in parallel.
+  const imagePrompt =
+    `Photorealistic interior design render: ${body.prompt}. ` +
+    `High-end custom built-in cabinetry and millwork, beautiful natural lighting, ` +
+    `professional architectural photography, showroom quality. No text or labels in the image.`;
+
   try {
-    const response = await client.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert interior designer and millwork specialist.
+    // ── Run design generation + image generation in parallel ─────────────────
+    const [designResponse, imageResponse] = await Promise.all([
+      client.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert interior designer and millwork specialist.
 You design custom built-in cabinetry and furniture for ANY room type: kitchens, living rooms, bedrooms, home offices, dining rooms, bathrooms, etc.
 Detect the room type from the user's prompt and generate a complete, positioned layout tailored to that room.
 Always call generate_room_design with your complete findings.`,
-        },
-        {
-          role: "user",
-          content: `Design request: "${body.prompt}"
+          },
+          {
+            role: "user",
+            content: `Design request: "${body.prompt}"
 
 STEP 1 — DETECT ROOM TYPE
 Identify the room from the prompt (kitchen, living room, bedroom, office, etc.). Default to "kitchen" only if explicitly mentioned or no room is specified.
@@ -125,94 +134,110 @@ STEP 5 — EXACT POSITION CHAINING (no gaps, no overlaps)
 STEP 6 — COVER ALL COMPONENTS SEPARATELY
   Output each distinct section as its own entry in cabinetList.
   If the design has upper and lower units at the same X position, create two entries with different posY values.`,
-        },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "generate_room_design",
-            description: "Generate a complete room built-in design from a natural language description",
-            parameters: {
-              type: "object",
-              properties: {
-                roomType: {
-                  type: "string",
-                  description: "Room type (e.g. 'kitchen', 'living room', 'bedroom', 'home office')",
-                },
-                designConcept: {
-                  type: "string",
-                  description: "1–2 sentence design concept describing style, materials, and layout",
-                },
-                requirements: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Key requirements extracted from the user prompt",
-                },
-                cabinetList: {
-                  type: "array",
-                  items: {
+          },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "generate_room_design",
+              description: "Generate a complete room built-in design from a natural language description",
+              parameters: {
+                type: "object",
+                properties: {
+                  roomType: {
+                    type: "string",
+                    description: "Room type (e.g. 'kitchen', 'living room', 'bedroom', 'home office')",
+                  },
+                  designConcept: {
+                    type: "string",
+                    description: "1–2 sentence design concept describing style, materials, and layout",
+                  },
+                  requirements: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Key requirements extracted from the user prompt",
+                  },
+                  cabinetList: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name:     { type: "string" },
+                        type:     { type: "string", enum: ["base","wall","tall","corner","drawer_base","sink_base","island"] },
+                        width:    { type: "number", description: "Width in mm" },
+                        height:   { type: "number", description: "Height in mm" },
+                        depth:    { type: "number", description: "Depth in mm" },
+                        posX:     { type: "number", description: "mm from back-left origin to LEFT edge. Must chain exactly with adjacent units." },
+                        posY:     { type: "number", description: "mm from floor to bottom of unit. 0 for floor-level. Use actual stacked height for upper units." },
+                        posZ:     { type: "number", description: "mm from back wall to back edge (0 for back-wall units)" },
+                        wallSide: { type: "string", enum: ["back","left","right","island","none"] },
+                        parameters: {
+                          type: "object",
+                          properties: {
+                            doorCount:          { type: "number" },
+                            drawerCount:        { type: "number" },
+                            shelfCount:         { type: "number" },
+                            toeKickHeight:      { type: "number" },
+                            constructionMethod: { type: "string" },
+                            hingeType:          { type: "string" },
+                          },
+                        },
+                        notes: { type: "string" },
+                      },
+                      required: ["name","type","width","height","depth","posX","posY","posZ","wallSide","parameters","notes"],
+                    },
+                  },
+                  roomLogic: {
                     type: "object",
                     properties: {
-                      name:   { type: "string" },
-                      type:   { type: "string", enum: ["base","wall","tall","corner","drawer_base","sink_base","island"] },
-                      width:  { type: "number", description: "Width in mm" },
-                      height: { type: "number", description: "Height in mm" },
-                      depth:  { type: "number", description: "Depth in mm" },
-                      posX:   { type: "number", description: "mm from back-left origin to LEFT edge. Must chain exactly with adjacent units." },
-                      posY:   { type: "number", description: "mm from floor to bottom of unit. 0 for floor-level. Use actual stacked height for upper units." },
-                      posZ:   { type: "number", description: "mm from back wall to back edge (0 for back-wall units)" },
-                      wallSide: { type: "string", enum: ["back","left","right","island","none"] },
-                      parameters: {
-                        type: "object",
-                        properties: {
-                          doorCount:          { type: "number" },
-                          drawerCount:        { type: "number" },
-                          shelfCount:         { type: "number" },
-                          toeKickHeight:      { type: "number" },
-                          constructionMethod: { type: "string" },
-                          hingeType:          { type: "string" },
-                        },
-                      },
-                      notes: { type: "string" },
+                      suggestedRoomWidth: { type: "number", description: "Room width in mm" },
+                      suggestedRoomDepth: { type: "number", description: "Room depth in mm" },
+                      layout:             { type: "string", description: "Layout description (e.g. 'L-shape kitchen', 'Symmetric entertainment wall')" },
                     },
-                    required: ["name","type","width","height","depth","posX","posY","posZ","wallSide","parameters","notes"],
+                    required: ["suggestedRoomWidth","suggestedRoomDepth","layout"],
+                  },
+                  standards: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Applicable construction and industry standards",
+                  },
+                  designNotes: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Important clearances, recommendations, and design observations",
                   },
                 },
-                roomLogic: {
-                  type: "object",
-                  properties: {
-                    suggestedRoomWidth: { type: "number", description: "Room width in mm" },
-                    suggestedRoomDepth: { type: "number", description: "Room depth in mm" },
-                    layout:             { type: "string", description: "Layout description (e.g. 'L-shape kitchen', 'Symmetric entertainment wall')" },
-                  },
-                  required: ["suggestedRoomWidth","suggestedRoomDepth","layout"],
-                },
-                standards: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Applicable construction and industry standards",
-                },
-                designNotes: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Important clearances, recommendations, and design observations",
-                },
+                required: ["roomType","designConcept","requirements","cabinetList","roomLogic","standards","designNotes"],
               },
-              required: ["roomType","designConcept","requirements","cabinetList","roomLogic","standards","designNotes"],
             },
           },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: "generate_room_design" } },
-    });
+        ],
+        tool_choice: { type: "function", function: { name: "generate_room_design" } },
+      }),
 
-    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+      // DALL-E 3 runs in parallel — failure is non-fatal
+      client.images.generate({
+        model: "dall-e-3",
+        prompt: imagePrompt,
+        size: "1792x1024",
+        quality: "standard",
+        n: 1,
+      }).catch((err) => {
+        console.warn("[ai-copilot] image generation failed (non-fatal):", err);
+        return null;
+      }),
+    ]);
+
+    const toolCall = designResponse.choices[0]?.message?.tool_calls?.[0];
     if (!toolCall || toolCall.type !== "function" || toolCall.function.name !== "generate_room_design") {
       return apiError("AI failed to generate a design. Try again.", 503, "AI_ERROR");
     }
 
-    return ok(JSON.parse(toolCall.function.arguments) as CopilotResult);
+    const design = JSON.parse(toolCall.function.arguments) as CopilotResult;
+    const imageUrl = imageResponse?.data?.[0]?.url ?? undefined;
+
+    return ok({ ...design, imageUrl });
   } catch (err) {
     console.error("[ai-copilot] OpenAI error:", err);
     return apiError("AI service unavailable. Try again later.", 503, "AI_UNAVAILABLE");
