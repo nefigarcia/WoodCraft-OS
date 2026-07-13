@@ -9,6 +9,7 @@
 // So on export we swap Y↔Z; on import we swap back.
 
 import type { AICabinetSpec } from "@/components/editor/AICopilotPanel";
+import { compileGeometry, type CompiledGeometry, type CompiledUnit } from "@woodcraft/shared";
 
 const MM_PER_INCH = 25.4;
 
@@ -70,30 +71,123 @@ function dxfBox(
   ].join("\n");
 }
 
-// ── Export: cabinet specs → DXF text ──────────────────────────────────────────
+// ── DXF axis conventions ──────────────────────────────────────────────────────
+// Standard CAD:  X = right (width),  Y = depth (into wall),  Z = up (height)
+// CabinetVision: X = right (width),  Y = up (height),        Z = depth
+//
+// Our internal coord system uses posX=right, posY=up, posZ=depth. The exporter
+// maps into whichever DXF convention the target CAD expects.
 
-export function cabinetsToDxf(cabinets: AICabinetSpec[]): string {
+type DxfAxis = "cad" | "cabinet_vision";
+
+function toDxfCoords(
+  axis: DxfAxis,
+  posX_mm: number, posY_mm: number, posZ_mm: number,
+  w_mm: number, h_mm: number, d_mm: number,
+): { x: number; y: number; z: number; w: number; d: number; h: number } {
+  const px = posX_mm / MM_PER_INCH;
+  const py = posY_mm / MM_PER_INCH;   // "up" in mm
+  const pz = posZ_mm / MM_PER_INCH;   // "depth" in mm
+  const w  = w_mm    / MM_PER_INCH;
+  const h  = h_mm    / MM_PER_INCH;
+  const d  = d_mm    / MM_PER_INCH;
+  if (axis === "cabinet_vision") {
+    // DXF Y = up, DXF Z = depth
+    return { x: px, y: py, z: pz, w, d, h };
+  }
+  // Standard CAD: DXF Y = depth, DXF Z = up
+  return { x: px, y: pz, z: py, w, d: d, h: h };
+}
+
+// ── Export: compiled geometry → DXF text ──────────────────────────────────────
+// Emits carcass + toe kick + countertop + door + drawer as separate 3DFACE
+// groups on sub-layers per cabinet, so CabinetVision sees real face breakouts
+// (not opaque blocks).
+
+interface DxfExportOptions {
+  axis?: DxfAxis;               // default "cad"
+  breakoutFronts?: boolean;     // default true — emit doors/drawers on sub-layers
+}
+
+function emitBox(
+  layer: string,
+  axis: DxfAxis,
+  posX: number, posY: number, posZ: number,
+  w: number, h: number, d: number,
+): string {
+  const c = toDxfCoords(axis, posX, posY, posZ, w, h, d);
+  return dxfBox(layer, c.x, c.y, c.z, c.w, c.d, c.h);
+}
+
+function unitToBlocks(
+  unit: CompiledUnit,
+  baseLayer: string,
+  axis: DxfAxis,
+  breakoutFronts: boolean,
+  layerNames: string[],
+): string[] {
+  const blocks: string[] = [];
+
+  // Skip openings and LED strips — not physical millwork
+  if (unit.role !== "cabinet" || !unit.features) return blocks;
+
+  const carcassLayer = `${baseLayer}__CARCASS`;
+  layerNames.push(carcassLayer);
+  const toeH = unit.features.toeKickHeightMm;
+  const carcassH = unit.height - toeH;
+  blocks.push(emitBox(carcassLayer, axis, unit.posX, unit.posY + toeH, unit.posZ, unit.width, carcassH, unit.depth));
+
+  if (toeH > 0) {
+    const toeLayer = `${baseLayer}__TOEKICK`;
+    layerNames.push(toeLayer);
+    blocks.push(emitBox(toeLayer, axis, unit.posX, unit.posY, unit.posZ, unit.width, toeH, unit.depth));
+  }
+
+  if (unit.features.countertop) {
+    const ct = unit.features.countertop;
+    const ctLayer = `${baseLayer}__COUNTERTOP`;
+    layerNames.push(ctLayer);
+    blocks.push(emitBox(
+      ctLayer, axis,
+      unit.posX - ct.overhangSidesMm,
+      unit.posY + unit.height,
+      unit.posZ,
+      unit.width + 2 * ct.overhangSidesMm,
+      ct.thicknessMm,
+      unit.depth + ct.overhangFrontMm,
+    ));
+  }
+
+  if (breakoutFronts) {
+    unit.features.fronts.forEach((f, i) => {
+      const layer = `${baseLayer}__${f.kind === "door" ? "DOOR" : "DRAWER"}_${String(i + 1).padStart(2, "0")}`;
+      layerNames.push(layer);
+      // Front panel sits on the FRONT face of the cabinet
+      // Local (x,y) offset within the cabinet, projected to world space
+      blocks.push(emitBox(
+        layer, axis,
+        unit.posX + f.x,
+        unit.posY + f.y,
+        unit.posZ + unit.depth - f.thicknessMm,
+        f.widthMm,
+        f.heightMm,
+        f.thicknessMm,
+      ));
+    });
+  }
+
+  return blocks;
+}
+
+function assembleDxf(geometry: CompiledGeometry, options: DxfExportOptions = {}): string {
+  const axis            = options.axis ?? "cad";
+  const breakoutFronts  = options.breakoutFronts ?? true;
   const layerNames: string[] = [];
   const geometryBlocks: string[] = [];
 
-  // Openings (TV recesses) and LED strips are not physical millwork — skip them.
-  const millwork = cabinets.filter(
-    (c) => c.parameters.role !== "opening" && c.parameters.role !== "led_strip",
-  );
-
-  millwork.forEach((cab, i) => {
-    const layer = `CAB_${String(i + 1).padStart(2, "0")}_${sanitizeLayer(cab.name || "UNIT")}`;
-    layerNames.push(layer);
-
-    // Convert mm → inches AND swap Y ↔ Z (DXF Z is up)
-    const x = (cab.posX ?? 0) / MM_PER_INCH;
-    const y = (cab.posZ ?? 0) / MM_PER_INCH; // our Z (depth) → DXF Y
-    const z = (cab.posY ?? 0) / MM_PER_INCH; // our Y (height) → DXF Z
-    const w = cab.width  / MM_PER_INCH;
-    const d = cab.depth  / MM_PER_INCH;      // depth in DXF Y
-    const h = cab.height / MM_PER_INCH;      // height in DXF Z
-
-    geometryBlocks.push(dxfBox(layer, x, y, z, w, d, h));
+  geometry.units.forEach((unit, i) => {
+    const baseLayer = `CAB_${String(i + 1).padStart(2, "0")}_${sanitizeLayer(unit.name || "UNIT")}`;
+    geometryBlocks.push(...unitToBlocks(unit, baseLayer, axis, breakoutFronts, layerNames));
   });
 
   const layerTable = layerNames
@@ -131,6 +225,33 @@ export function cabinetsToDxf(cabinets: AICabinetSpec[]): string {
 
     pair(0, "EOF"),
   ].join("\n") + "\n";
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+// Ensure we have compiled geometry — either the caller already has it, or we
+// compile from the raw specs. Both paths produce identical output.
+function ensureGeometry(input: AICabinetSpec[] | CompiledGeometry): CompiledGeometry {
+  if (!Array.isArray(input)) return input;
+  const roomWidth  = Math.max(0, ...input.map((c) => (c.posX ?? 0) + c.width));
+  const roomDepth  = Math.max(0, ...input.map((c) => (c.posZ ?? 0) + c.depth));
+  const primary    = input.find((c) => c.parameters.finishStyle)?.parameters.finishStyle ?? "natural_wood";
+  return compileGeometry(
+    input,
+    { suggestedRoomWidth: roomWidth, suggestedRoomDepth: roomDepth },
+    primary,
+    "room",
+  );
+}
+
+/** Output C — Standard CAD DXF (Z-up). Doors/drawers on sub-layers. */
+export function cabinetsToDxf(input: AICabinetSpec[] | CompiledGeometry): string {
+  return assembleDxf(ensureGeometry(input), { axis: "cad", breakoutFronts: true });
+}
+
+/** Output D — CabinetVision-flavored DXF (Y-up, per CV axis convention). */
+export function cabinetsToCabinetVisionDxf(input: AICabinetSpec[] | CompiledGeometry): string {
+  return assembleDxf(ensureGeometry(input), { axis: "cabinet_vision", breakoutFronts: true });
 }
 
 // ── Import: DXF text → cabinet specs ──────────────────────────────────────────

@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { apiClient } from "@/lib/api";
-import { cabinetsToDxf, parseDxfCabinets, downloadDxf } from "@/lib/dxf";
+import { cabinetsToDxf, cabinetsToCabinetVisionDxf, parseDxfCabinets, downloadDxf } from "@/lib/dxf";
+import type { CompiledGeometry } from "@woodcraft/shared";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ interface CopilotResult {
   imageUrl?: string;
   requirements: string[];
   cabinetList: AICabinetSpec[];
+  /** Deterministic compiled geometry — read by 3D, DXF, elevation preview. */
+  compiledGeometry?: CompiledGeometry;
   roomLogic: {
     suggestedRoomWidth: number;
     suggestedRoomDepth: number;
@@ -480,20 +483,31 @@ function ResultView({
 
         <button
           onClick={() => {
-            const specs = normalizeFinishes(result);
-            const dxf = cabinetsToDxf(specs);
             const safe = (result.roomType || "design").replace(/[^A-Za-z0-9]+/g, "_").toLowerCase();
+            // Prefer compiled geometry when the server provided it (single source of truth).
+            const src = result.compiledGeometry ?? normalizeFinishes(result);
+            const dxf = cabinetsToDxf(src);
             downloadDxf(`woodcraft_${safe}_${Date.now()}.dxf`, dxf);
           }}
           className="px-3 py-2.5 rounded-lg text-sm font-bold transition-all"
-          style={{
-            background: "#0D0F12",
-            color: "#c8852a",
-            border: "1px solid #c8852a66",
-          }}
-          title="Download DXF for CabinetVision / any CAD"
+          style={{ background: "#0D0F12", color: "#c8852a", border: "1px solid #c8852a66" }}
+          title="Standard CAD DXF (Z-up) with door + drawer sub-layers"
         >
           ⬇ DXF
+        </button>
+
+        <button
+          onClick={() => {
+            const safe = (result.roomType || "design").replace(/[^A-Za-z0-9]+/g, "_").toLowerCase();
+            const src = result.compiledGeometry ?? normalizeFinishes(result);
+            const dxf = cabinetsToCabinetVisionDxf(src);
+            downloadDxf(`woodcraft_${safe}_cv_${Date.now()}.dxf`, dxf);
+          }}
+          className="px-3 py-2.5 rounded-lg text-sm font-bold transition-all"
+          style={{ background: "#0D0F12", color: "#22d3ee", border: "1px solid #22d3ee66" }}
+          title="CabinetVision DXF (Y-up axis convention)"
+        >
+          ⬇ CV
         </button>
       </div>
     </div>

@@ -3,6 +3,7 @@ import OpenAI from "openai";
 
 import { getContext } from "@/lib/context";
 import { apiError, ok } from "@/lib/errors";
+import { compileGeometry, type CompiledGeometry } from "@woodcraft/shared";
 
 type CabinetType = "base" | "wall" | "tall" | "corner" | "drawer_base" | "sink_base" | "island";
 
@@ -105,31 +106,32 @@ function mmToIn(mm: number, digits = 0): string {
   return `${(mm / 25.4).toFixed(digits)}"`;
 }
 
+// The image prompt is derived from the COMPILED GEOMETRY (not the raw spec),
+// so every panel/door/drawer/handle count already exists as concrete numbers.
+// This is the same struct the 3D scene and DXF exporter consume — one source of truth.
 function describeDesignForImage(
-  design: CopilotResult,
-  cabinets: AICabinetSpec[],
-  tvZone: TvZone | null,
+  geometry: CompiledGeometry,
+  designConcept: string,
   fv: { desc: string; negative: string },
 ): string {
-  // Only physical cabinets count as rows. Openings and LED strips are described separately.
-  const physical = cabinets.filter((c) => c.parameters.role !== "opening" && c.parameters.role !== "led_strip");
-  const leds     = cabinets.filter((c) => c.parameters.role === "led_strip");
-
-  const towers  = physical.filter((c) => c.type === "tall");
-  const baseRow = physical.filter((c) => c.type !== "tall" && (c.posY ?? 0) < 300);
-  const midRow  = physical.filter((c) => c.type !== "tall" && (c.posY ?? 0) >= 300 && (c.posY ?? 0) < 1400);
-  const topRow  = physical.filter((c) => c.type !== "tall" && (c.posY ?? 0) >= 1400);
+  const { overall, summary, units, tvRecess } = geometry;
+  const towers  = units.filter((u) => u.rowClass === "tower");
+  const baseRow = units.filter((u) => u.role === "cabinet" && u.rowClass === "base");
+  const midRow  = units.filter((u) => u.role === "cabinet" && u.rowClass === "middle");
+  const topRow  = units.filter((u) => u.role === "cabinet" && u.rowClass === "upper");
 
   const parts: string[] = [
-    `Photorealistic front-elevation architectural render of ${fv.desc} built-in ${design.roomType} cabinetry.`,
-    `Design intent: ${design.designConcept}`,
-    `Wall run: ${mmToIn(design.roomLogic.suggestedRoomWidth)} wide total.`,
+    `Photorealistic front-elevation architectural render of ${fv.desc} built-in ${overall.roomType} cabinetry.`,
+    `Design intent: ${designConcept}`,
+    `Overall wall: ${mmToIn(overall.widthMm)} wide × ${mmToIn(overall.maxHeightMm)} tall × ${mmToIn(overall.depthMm)} deep.`,
+    `Element counts (exact — the render must show this many of each): ${summary.doorCount} closed doors, ${summary.drawerCount} drawer fronts, ${summary.towerCount} tall towers, ${summary.ledStripCount} LED strip${summary.ledStripCount === 1 ? "" : "s"}, ${summary.tvRecessCount} TV recess${summary.tvRecessCount === 1 ? "" : "es"}.`,
   ];
 
   if (towers.length >= 2) {
     const t = towers[0];
+    const towerDoors = t.features?.fronts.filter((f) => f.kind === "door").length ?? 0;
     parts.push(
-      `Two full-height tall side towers at the left and right ends of the wall, each ${mmToIn(t.width)} wide × ${mmToIn(t.height)} tall × ${mmToIn(t.depth)} deep, with vertical closed doors.`,
+      `Two full-height tall side towers at the left and right ends of the wall, each ${mmToIn(t.width)} wide × ${mmToIn(t.height)} tall × ${mmToIn(t.depth)} deep, each with ${towerDoors} vertical closed door${towerDoors === 1 ? "" : "s"}.`,
     );
   } else if (towers.length === 1) {
     parts.push(`One full-height tall tower, ${mmToIn(towers[0].width)} × ${mmToIn(towers[0].height)}.`);
@@ -137,22 +139,23 @@ function describeDesignForImage(
 
   if (baseRow.length > 0) {
     const b = baseRow[0];
-    const isDrawer = baseRow.some((c) => c.type === "drawer_base");
+    const totalDrawers = baseRow.reduce((n, u) => n + (u.features?.fronts.filter((f) => f.kind === "drawer").length ?? 0), 0);
+    const isDrawer = baseRow.some((u) => u.type === "drawer_base") || totalDrawers > 0;
     parts.push(
-      `Base row between the towers: ${baseRow.length} ${isDrawer ? "drawer" : "cabinet"} sections side-by-side, each about ${mmToIn(b.width)} wide × ${mmToIn(b.height)} tall × ${mmToIn(b.depth)} deep, ${isDrawer ? "flat drawer fronts with slim horizontal metal handles" : "with slab doors"}.`,
+      `Base row between the towers: ${baseRow.length} ${isDrawer ? "drawer bank" : "cabinet"} sections side-by-side, each about ${mmToIn(b.width)} wide × ${mmToIn(b.height)} tall × ${mmToIn(b.depth)} deep, ${totalDrawers} total drawer fronts across the row with slim horizontal metal handles.`,
     );
   }
 
   if (midRow.length > 0) {
     const m = midRow[0];
     parts.push(
-      `Middle row above the base: ${midRow.length} open display shelves${tvZone ? " flanking a central TV mount recess" : ""}, each about ${mmToIn(m.width)} wide × ${mmToIn(m.height)} tall × ${mmToIn(m.depth)} deep, backlit with warm integrated LED strips along the top edge.`,
+      `Middle row above the base: ${midRow.length} open display shelves${tvRecess ? " flanking a central TV mount recess" : ""}, each about ${mmToIn(m.width)} wide × ${mmToIn(m.height)} tall × ${mmToIn(m.depth)} deep, interiors backlit with warm integrated LED strips.`,
     );
   }
 
-  if (tvZone) {
+  if (tvRecess) {
     parts.push(
-      `Central TV recess: exactly ${mmToIn(tvZone.widthMm)} wide × ${mmToIn(tvZone.heightMm)} tall — a flat-screen TV wall-mounted inside this empty recess, NO cabinet doors or shelves inside the recess itself.`,
+      `Central TV recess: exactly ${mmToIn(tvRecess.widthMm)} wide × ${mmToIn(tvRecess.heightMm)} tall — a flat-screen TV wall-mounted inside this empty recess, NO cabinet doors or shelves inside the recess itself, dark inset back panel.`,
     );
   }
 
@@ -163,15 +166,13 @@ function describeDesignForImage(
     );
   }
 
-  if (leds.length > 0) {
+  if (summary.ledStripCount > 0) {
     parts.push(
-      `Warm integrated LED lighting: ${leds.length} strip${leds.length === 1 ? "" : "s"} casting a soft honey-amber glow that grazes the shelf interiors and highlights the wood grain.`,
+      `Warm integrated LED lighting: ${summary.ledStripCount} strip${summary.ledStripCount === 1 ? "" : "s"} casting a soft honey-amber glow that grazes the shelf interiors and highlights the wood grain.`,
     );
   }
 
-  parts.push(
-    `Every panel, door, drawer front, tower, and shelf is ${fv.desc}.`,
-  );
+  parts.push(`Every panel, door, drawer front, tower, and shelf is ${fv.desc}.`);
   if (fv.negative) parts.push(`IMPORTANT: ${fv.negative}.`);
   parts.push(
     `Symmetric front-elevation composition, beautiful even natural lighting, professional architectural photography, showroom quality.`,
@@ -188,6 +189,8 @@ export interface CopilotResult {
   imageUrl?: string;
   requirements: string[];
   cabinetList: AICabinetSpec[];
+  /** Deterministic compiled geometry — same source of truth used for 3D, DXF, and image prompt. */
+  compiledGeometry?: CompiledGeometry;
   roomLogic: {
     suggestedRoomWidth: number;
     suggestedRoomDepth: number;
@@ -506,20 +509,30 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
 
     const design = JSON.parse(toolCall.function.arguments) as CopilotResult;
 
-    // ── Step 2: Server-side validation + normalization ────────────────────────
+    // ── Step 2: Validation + Normalization ────────────────────────────────────
     // Filter phantom TV placeholders, force finish consistency, extract TV zone.
-    // The cleaned cabinetList becomes the single source of truth for both the
-    // image prompt and the DXF/3D geometry the client will render.
-    const { cabinets, tvZone } = validateAndRepairSpec(design);
+    const { cabinets } = validateAndRepairSpec(design);
     design.cabinetList = cabinets;
 
-    // ── Step 3: Build image prompt from the validated CabinetSpec ─────────────
-    // The image is derived from the SAME spec the 3D uses, so what you see
-    // in the render is what appears in the 3D panel and the DXF.
-    const fv = FINISH_VISUAL[design.primaryFinish] ?? FINISH_VISUAL.natural_wood;
-    const imagePrompt = describeDesignForImage(design, cabinets, tvZone, fv);
+    // ── Step 3: Geometry Compiler ─────────────────────────────────────────────
+    // Turn the validated spec into deterministic parametric geometry. Every
+    // downstream output — image prompt, 3D scene, DXF export, elevation preview —
+    // consumes THIS struct. It is the single source of truth.
+    const geometry = compileGeometry(
+      cabinets,
+      design.roomLogic,
+      design.primaryFinish,
+      design.roomType,
+    );
+    design.compiledGeometry = geometry;
 
-    // ── Step 3: Generate image (non-fatal) ────────────────────────────────────
+    // ── Step 4: Outputs branch off the compiled geometry ──────────────────────
+    // Output E: AI concept render. The image prompt describes the compiled
+    // geometry (exact door/drawer counts, opening dimensions, LED positions),
+    // so the render can no longer invent extra shelves or different proportions.
+    const fv = FINISH_VISUAL[design.primaryFinish] ?? FINISH_VISUAL.natural_wood;
+    const imagePrompt = describeDesignForImage(geometry, design.designConcept, fv);
+
     const imageResponse = await client.images.generate({
       model: "gpt-image-1",
       prompt: imagePrompt,
@@ -534,6 +547,8 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
     const b64 = imageResponse?.data?.[0]?.b64_json;
     const imageUrl = b64 ? `data:image/png;base64,${b64}` : undefined;
 
+    // Outputs A/B/C/D (elevation preview, 3D scene, DXF, CabinetVision DXF) are
+    // built by the client from the SAME `compiledGeometry` we return here.
     return ok({ ...design, imageUrl });
   } catch (err) {
     console.error("[ai-copilot] OpenAI error:", err);
