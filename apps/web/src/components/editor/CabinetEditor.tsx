@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid, Environment } from "@react-three/drei";
 import { useEditorStore } from "@/store/editor";
@@ -35,7 +36,7 @@ const PALETTES: Record<string, Palette> = {
   natural_wood:  { carcass:"#5a3e28", door:"#7a5538", doorSel:"#c8852a", panel:"#633222", panelSel:"#d4922e", toe:"#3a2415", handle:"#b8b8b8", top:"#ddd8cc" },
   dark_walnut:   { carcass:"#3d2e1e", door:"#6b5035", doorSel:"#c8852a", panel:"#523c27", panelSel:"#d4922e", toe:"#2a2018", handle:"#b4b4b4", top:"#ddd8cc" },
   white_painted: { carcass:"#d8d8d8", door:"#f0f0f0", doorSel:"#c8852a", panel:"#c8c8c8", panelSel:"#d4922e", toe:"#b8b8b8", handle:"#888888", top:"#fafaf5" },
-  modern_gloss:  { carcass:"#1c1c2e", door:"#252545", doorSel:"#c8852a", panel:"#1a1a35", panelSel:"#d4922e", toe:"#12121e", handle:"#e0e0e0", top:"#303030" },
+  modern_gloss:  { carcass:"#1a1a1c", door:"#26262a", doorSel:"#c8852a", panel:"#1e1e22", panelSel:"#d4922e", toe:"#111113", handle:"#c8c8ce", top:"#2a2a2e" },
   glass:         { carcass:"#6b5035", door:"#88ccee", doorSel:"#22d3ee", panel:"#0a4060", panelSel:"#38bdf8", toe:"#3d2e1e", handle:"#a07848", top:"#6b5035" },
   metal:         { carcass:"#252525", door:"#383838", doorSel:"#c8852a", panel:"#1e1e1e", panelSel:"#d4922e", toe:"#151515", handle:"#909090", top:"#444444" },
 };
@@ -94,8 +95,12 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
   const doors   = Number(prm.doorCount   ?? (w > 0.65 ? 2 : 1));
   const drawers = Number(prm.drawerCount ?? (type === "drawer_base" ? 3 : 0));
 
+  const heightMm = Number(cabinet.height);
+  const isKitchenH = heightMm >= 800 && heightMm <= 950;
   const hasToe   = ["base","drawer_base","sink_base","island","tall"].includes(type);
-  const hasTop   = ["base","drawer_base","sink_base","island"].includes(type);
+  // Countertop slab only for kitchen-height bases and islands.
+  // Living-room drawer banks / office desks / bedroom pieces have no separate top slab.
+  const hasTop   = type === "island" || (isKitchenH && (type === "base" || type === "sink_base"));
   const isIsland = type === "island";
   const toeH     = hasToe ? TOE_H : 0;
   const isGlass  = String(prm.finishStyle ?? "").includes("glass") ||
@@ -113,6 +118,9 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
   const gz = Number(cabinet.posZ) / 1000;
 
   const C = getPalette(String(prm.finishStyle ?? ""), cabinet.name, String(prm.notes ?? ""));
+  const isGloss = String(prm.finishStyle ?? "") === "modern_gloss";
+  const doorRoughness = isGloss ? 0.15 : 0.6;
+  const doorMetalness = isGloss ? 0.35 : 0.03;
   const carcassH = h - toeH;
   const carcassD = d - DOOR_T;
   const doorCol  = isSelected ? C.doorSel  : C.door;
@@ -163,7 +171,7 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
               <boxGeometry args={[p.pw, p.ph, DOOR_T]} />
               {isGlass
                 ? <meshStandardMaterial color={doorCol} transparent opacity={0.28} roughness={0.05} metalness={0.15} />
-                : <meshStandardMaterial color={doorCol} roughness={0.6} metalness={0.03} />
+                : <meshStandardMaterial color={doorCol} roughness={doorRoughness} metalness={doorMetalness} />
               }
             </mesh>
 
@@ -203,6 +211,74 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
       )}
     </group>
   );
+}
+
+// ── Opening mesh — a labeled empty recess (e.g. TV mount zone) ────────────────
+// Renders as a thin dark recessed back panel + a subtle outlined frame. No doors,
+// no shelves. Skipped by the DXF exporter.
+function OpeningMesh({ cabinet }: { cabinet: Cabinet }) {
+  const selectCabinet = useEditorStore((s) => s.selectCabinet);
+  const isSelected    = useEditorStore((s) => s.selectedCabinetId) === cabinet.id;
+
+  const w  = Number(cabinet.width)  / 1000;
+  const h  = Number(cabinet.height) / 1000;
+  const d  = Math.max(0.005, Number(cabinet.depth) / 1000);
+  const gx = Number(cabinet.posX)   / 1000;
+  const gy = Number(cabinet.posY)   / 1000;
+  const gz = Number(cabinet.posZ)   / 1000;
+
+  const frame = isSelected ? "#c8852a" : "#3a3a3e";
+
+  return (
+    <group
+      position={[gx, gy, gz]}
+      onClick={(e) => { e.stopPropagation(); selectCabinet(cabinet.id); }}
+    >
+      {/* Recessed dark back panel — represents the drywall behind the TV */}
+      <mesh position={[w / 2, h / 2, d]}>
+        <boxGeometry args={[w, h, 0.005]} />
+        <meshStandardMaterial color="#111114" roughness={0.9} metalness={0} />
+      </mesh>
+      {/* Slim frame around the opening */}
+      <lineSegments position={[w / 2, h / 2, d + 0.003]}>
+        <edgesGeometry args={[new THREE.BoxGeometry(w, h, 0.001)]} />
+        <lineBasicMaterial color={frame} />
+      </lineSegments>
+    </group>
+  );
+}
+
+// ── LED strip mesh — a thin warm-glow bar with no shadow casting ──────────────
+// Skipped by the DXF exporter.
+function LedStripMesh({ cabinet }: { cabinet: Cabinet }) {
+  const selectCabinet = useEditorStore((s) => s.selectCabinet);
+  const w  = Math.max(0.02, Number(cabinet.width)  / 1000);
+  const h  = Math.max(0.005, Number(cabinet.height) / 1000);
+  const d  = Math.max(0.005, Number(cabinet.depth) / 1000);
+  const gx = Number(cabinet.posX) / 1000;
+  const gy = Number(cabinet.posY) / 1000;
+  const gz = Number(cabinet.posZ) / 1000;
+
+  return (
+    <group
+      position={[gx, gy, gz]}
+      onClick={(e) => { e.stopPropagation(); selectCabinet(cabinet.id); }}
+    >
+      <mesh position={[w / 2, h / 2, d / 2]}>
+        <boxGeometry args={[w, h, d]} />
+        {/* Unlit, glowing material — toneMapped false so it stays bright */}
+        <meshBasicMaterial color="#ffcc88" toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+// ── Render dispatch — pick the right mesh based on parameters.role ────────────
+function CabinetSceneItem({ cabinet }: { cabinet: Cabinet }) {
+  const params = (cabinet.parameters ?? {}) as { role?: string };
+  if (params.role === "opening")   return <OpeningMesh   cabinet={cabinet} />;
+  if (params.role === "led_strip") return <LedStripMesh  cabinet={cabinet} />;
+  return <CabinetMesh cabinet={cabinet} />;
 }
 
 export default function CabinetEditor({ projectId }: Props) {
@@ -451,7 +527,7 @@ export default function CabinetEditor({ projectId }: Props) {
             fadeDistance={30} fadeStrength={1} followCamera={false} infiniteGrid
           />
           {cabinets.map((cab) => (
-            <CabinetMesh key={cab.id} cabinet={cab} />
+            <CabinetSceneItem key={cab.id} cabinet={cab} />
           ))}
           <OrbitControls makeDefault />
           <Environment preset="warehouse" background={false} />

@@ -17,14 +17,168 @@ interface AICabinetSpec {
   posZ: number;
   wallSide: "back" | "left" | "right" | "island" | "none";
   parameters: {
+    role?: "cabinet" | "opening" | "led_strip";
     doorCount?: number;
     drawerCount?: number;
     shelfCount?: number;
     toeKickHeight?: number;
     constructionMethod?: string;
     hingeType?: string;
+    finishStyle?: string;
   };
   notes: string;
+}
+
+interface TvZone {
+  widthMm: number;
+  heightMm: number;
+  posX: number;
+  posY: number;
+}
+
+// ── Server-side validation & normalization ───────────────────────────────────
+// The CabinetSpec is the single source of truth: both the image prompt and
+// the 3D/DXF geometry read from the SAME validated list. This function turns
+// the raw AI output into that canonical list.
+
+const PHANTOM_TV_RE = /\b(tv|television|screen)[\s-]+(opening|recess|niche|cavity|void|cutout|cutting|hole)\b/i;
+
+function isPhantomTvUnit(cab: AICabinetSpec): boolean {
+  return PHANTOM_TV_RE.test(`${cab.name} ${cab.notes ?? ""}`);
+}
+
+function isGlassUnit(cab: AICabinetSpec): boolean {
+  const hint = `${cab.name} ${cab.notes ?? ""}`.toLowerCase();
+  return (
+    cab.parameters.finishStyle === "glass" ||
+    hint.includes("fish tank") ||
+    hint.includes("aquarium")
+  );
+}
+
+function validateAndRepairSpec(design: CopilotResult): {
+  cabinets: AICabinetSpec[];
+  tvZone: TvZone | null;
+} {
+  // Prefer a proper role="opening" entry for the TV zone. Fall back to a legacy
+  // phantom-named unit if the AI didn't use the role field yet.
+  const opening = design.cabinetList.find((c) => c.parameters.role === "opening");
+  const legacyPhantom =
+    opening ?? design.cabinetList.find((c) => isPhantomTvUnit(c) && c.parameters.role !== "led_strip");
+
+  const tvZone: TvZone | null = legacyPhantom
+    ? {
+        widthMm: legacyPhantom.width,
+        heightMm: legacyPhantom.height,
+        posX: legacyPhantom.posX ?? 0,
+        posY: legacyPhantom.posY ?? 610,
+      }
+    : null;
+
+  // Keep role="opening" and role="led_strip" units — they render specially in 3D
+  // and are skipped by the DXF exporter. Only drop the LEGACY unlabeled phantoms
+  // (units that look like "TV Recess" but never set parameters.role).
+  const cabinets = design.cabinetList
+    .filter(
+      (c) =>
+        c.parameters.role === "opening" ||
+        c.parameters.role === "led_strip" ||
+        !isPhantomTvUnit(c),
+    )
+    .map((c) => ({
+      ...c,
+      parameters: {
+        ...c.parameters,
+        role: c.parameters.role ?? "cabinet",
+        finishStyle: isGlassUnit(c) ? "glass" : design.primaryFinish,
+      },
+    }));
+
+  return { cabinets, tvZone };
+}
+
+// ── Image prompt builder — reads from the validated CabinetSpec ──────────────
+// The image is derived FROM the geometry, not from the user prompt, so the
+// render describes exactly what the 3D/DXF will contain.
+
+function mmToIn(mm: number, digits = 0): string {
+  return `${(mm / 25.4).toFixed(digits)}"`;
+}
+
+function describeDesignForImage(
+  design: CopilotResult,
+  cabinets: AICabinetSpec[],
+  tvZone: TvZone | null,
+  fv: { desc: string; negative: string },
+): string {
+  // Only physical cabinets count as rows. Openings and LED strips are described separately.
+  const physical = cabinets.filter((c) => c.parameters.role !== "opening" && c.parameters.role !== "led_strip");
+  const leds     = cabinets.filter((c) => c.parameters.role === "led_strip");
+
+  const towers  = physical.filter((c) => c.type === "tall");
+  const baseRow = physical.filter((c) => c.type !== "tall" && (c.posY ?? 0) < 300);
+  const midRow  = physical.filter((c) => c.type !== "tall" && (c.posY ?? 0) >= 300 && (c.posY ?? 0) < 1400);
+  const topRow  = physical.filter((c) => c.type !== "tall" && (c.posY ?? 0) >= 1400);
+
+  const parts: string[] = [
+    `Photorealistic front-elevation architectural render of ${fv.desc} built-in ${design.roomType} cabinetry.`,
+    `Design intent: ${design.designConcept}`,
+    `Wall run: ${mmToIn(design.roomLogic.suggestedRoomWidth)} wide total.`,
+  ];
+
+  if (towers.length >= 2) {
+    const t = towers[0];
+    parts.push(
+      `Two full-height tall side towers at the left and right ends of the wall, each ${mmToIn(t.width)} wide × ${mmToIn(t.height)} tall × ${mmToIn(t.depth)} deep, with vertical closed doors.`,
+    );
+  } else if (towers.length === 1) {
+    parts.push(`One full-height tall tower, ${mmToIn(towers[0].width)} × ${mmToIn(towers[0].height)}.`);
+  }
+
+  if (baseRow.length > 0) {
+    const b = baseRow[0];
+    const isDrawer = baseRow.some((c) => c.type === "drawer_base");
+    parts.push(
+      `Base row between the towers: ${baseRow.length} ${isDrawer ? "drawer" : "cabinet"} sections side-by-side, each about ${mmToIn(b.width)} wide × ${mmToIn(b.height)} tall × ${mmToIn(b.depth)} deep, ${isDrawer ? "flat drawer fronts with slim horizontal metal handles" : "with slab doors"}.`,
+    );
+  }
+
+  if (midRow.length > 0) {
+    const m = midRow[0];
+    parts.push(
+      `Middle row above the base: ${midRow.length} open display shelves${tvZone ? " flanking a central TV mount recess" : ""}, each about ${mmToIn(m.width)} wide × ${mmToIn(m.height)} tall × ${mmToIn(m.depth)} deep, backlit with warm integrated LED strips along the top edge.`,
+    );
+  }
+
+  if (tvZone) {
+    parts.push(
+      `Central TV recess: exactly ${mmToIn(tvZone.widthMm)} wide × ${mmToIn(tvZone.heightMm)} tall — a flat-screen TV wall-mounted inside this empty recess, NO cabinet doors or shelves inside the recess itself.`,
+    );
+  }
+
+  if (topRow.length > 0) {
+    const t = topRow[0];
+    parts.push(
+      `Upper overhead bridge row above the shelves: ${topRow.length} cabinets, each about ${mmToIn(t.width)} wide × ${mmToIn(t.height)} tall.`,
+    );
+  }
+
+  if (leds.length > 0) {
+    parts.push(
+      `Warm integrated LED lighting: ${leds.length} strip${leds.length === 1 ? "" : "s"} casting a soft honey-amber glow that grazes the shelf interiors and highlights the wood grain.`,
+    );
+  }
+
+  parts.push(
+    `Every panel, door, drawer front, tower, and shelf is ${fv.desc}.`,
+  );
+  if (fv.negative) parts.push(`IMPORTANT: ${fv.negative}.`);
+  parts.push(
+    `Symmetric front-elevation composition, beautiful even natural lighting, professional architectural photography, showroom quality.`,
+    `No text, no dimension labels, no annotations in the image.`,
+  );
+
+  return parts.join(" ");
 }
 
 export interface CopilotResult {
@@ -56,15 +210,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const client = getOpenAI();
 
-  // Finish style → human-readable description for the image prompt
-  const FINISH_VISUAL: Record<string, string> = {
-    light_oak:     "light oak wood",
-    natural_wood:  "warm natural wood",
-    dark_walnut:   "rich dark walnut",
-    white_painted: "crisp white painted",
-    modern_gloss:  "high-gloss dark lacquer",
-    metal:         "brushed metal",
-    glass:         "natural wood with glass accents",
+  // Finish style → assertive image-model description with negative cues to
+  // override gpt-image-1's warm-oak default bias for "living room" scenes.
+  const FINISH_VISUAL: Record<string, { desc: string; negative: string }> = {
+    light_oak:     { desc: "light oak wood with visible natural wood grain, warm honey tones, matte finish", negative: "no dark stains, no black, no gloss lacquer" },
+    natural_wood:  { desc: "warm medium-brown natural wood with visible grain, matte finish",                 negative: "no gloss, no painted surfaces" },
+    dark_walnut:   { desc: "rich dark walnut wood with visible grain, deep espresso tones, matte finish",     negative: "no light wood, no gloss" },
+    white_painted: { desc: "crisp white painted cabinetry, smooth matte painted surfaces, flat panels",       negative: "NO wood grain visible, NOT wood, no oak, no walnut" },
+    modern_gloss:  { desc: "high-gloss anthracite black lacquer cabinetry, glossy reflective flat surfaces, seamless slab doors", negative: "NO wood grain, NOT oak, NOT warm wood, no matte finish, no visible wood texture" },
+    metal:         { desc: "brushed stainless-steel and matte-metal cabinetry, industrial look",              negative: "no wood, no paint" },
+    glass:         { desc: "natural wood frame with clear glass display panels",                              negative: "" },
   };
 
   try {
@@ -114,6 +269,88 @@ Office:
   Bookcase (tall):   varies W × 2134 mm H × 305 mm D
   Overhead (wall):   varies W × 457 mm H × 305 mm D — posY = height of desk
 
+STEP 3b — MINIMUM COMPONENT REQUIREMENTS (CRITICAL — do not skip)
+The output must be as detailed as a professional showroom render. A wall unit is
+NEVER just 2 towers + 1 short console — it is a full integrated built-in with
+multiple layered rows.
+
+Living room / Entertainment / Display wall (MUST produce 10–15 units, layered):
+
+  ROW 1 — BASE (posY = 0, height 610 mm, depth 406 mm)
+    · 3–5 drawer_base sections side-by-side across the middle span
+    · Each 600–900 mm wide
+    · Notes: "base drawer unit"
+
+  ROW 2 — MIDDLE OPEN SHELVES / TV (posY = 610, height 610–914 mm, depth 305 mm)
+    IF NO TV in the prompt:
+      · Emit 3–4 wall-type OPEN DISPLAY SHELVES that fill the space between towers
+      · Each 600–900 mm wide
+      · Notes: "open display shelf" or "LED-backlit shelf"
+
+    IF THE PROMPT MENTIONS A TV — follow this recipe EXACTLY:
+      · Compute middleSpan = roomWidth − leftTower.width − rightTower.width
+      · Compute tvOpening = clamp(1200, 1000, middleSpan − 600)
+      · Compute sideShelfWidth = (middleSpan − tvOpening) / 2
+      · Emit 2 wall-type shelves in ROW 2:
+          shelf_L: posX = leftTower.width,                 width = sideShelfWidth
+          shelf_R: posX = leftTower.width + sideShelfWidth + tvOpening,  width = sideShelfWidth
+      · Also emit ONE explicit OPENING unit for the TV recess itself:
+          name = "TV Recess", type = "wall", parameters.role = "opening"
+          posX = leftTower.width + sideShelfWidth
+          posY = row-2 posY  (typically 610)
+          width = tvOpening,   height = row-2 height,   depth = 51
+          finishStyle = primaryFinish (only used for the outline color)
+      · The opening tells downstream tools "TV mounts here, don't put a cabinet".
+        It renders as a subtle outlined recess in 3D and is skipped by the DXF exporter.
+
+    Always set finishStyle = primaryFinish for shelves (NOT glass) — they are wood.
+
+STEP 3c — LED LIGHTING (optional, adds ambience)
+  If the prompt mentions "LED", "backlit", "ambient", or "lighting", emit ONE OR MORE
+  led_strip units representing where the light lives. Each one is a real entry:
+    name = "LED Strip — <where>", type = "wall", parameters.role = "led_strip"
+    Dimensions describe the STRIP itself: length × 20 mm tall × 10 mm deep
+    Position at the top edge of each display shelf's opening, or under the upper row,
+    or around the TV recess perimeter.
+    finishStyle = primaryFinish (ignored — the strip renders as a warm glow)
+  LED strips are skipped by the DXF exporter (they are not millwork).
+
+  ROW 3 — UPPER OVERHEAD (posY = 610 + row-2 height, height 305–457 mm, depth 305 mm)
+    · 2–3 wall-type sections spanning the width above the shelves
+    · Each 600–1200 mm wide
+    · Notes: "upper overhead cabinet"
+
+  SIDES — TALL TOWERS (posY = 0, height 2134 mm, depth 406 mm, ~600 mm wide)
+    · One on the left (posX = 0) and one on the right
+      (posX = roomWidth − tower width)
+    · These span all three rows on the sides
+
+  Verify: base row (drawers) + tower widths = roomWidth
+  Verify: middle-row shelves + tower widths = roomWidth
+  Verify: upper-row cabinets + tower widths = roomWidth
+  Verify: total unit count is at least 10
+
+Kitchen (MUST produce 8–15 units):
+  · A run of base cabinets across the back wall (split every 600–900 mm)
+  · Matching wall cabinets above at posY = 1371 (split every 600–900 mm)
+  · At least one sink base and one tall pantry / oven tower
+  · If the prompt mentions an island, add it as a separate unit
+
+Bedroom (MUST produce 5–10 units):
+  · Two matching nightstands flanking the bed area
+  · One or two dressers (drawer_base)
+  · Wardrobe / closet tall units on one wall
+  · Optional upper overhead cabinets above the bed
+
+Home office (MUST produce 6–10 units):
+  · Desk base unit(s) at 762 mm H
+  · Bookcase tall unit(s) at 2134 mm H
+  · Overhead wall cabinets above the desk (posY = 762)
+  · Optional file drawer_base units
+
+NEVER leave the room half empty. If a room is 3.6 m wide and you only emit 3 units,
+you are wrong — split each large run into multiple realistically-sized sections.
+
 STEP 4 — COORDINATE SYSTEM
   Origin (0,0,0) = back-left corner of the room, at floor level
   X+ = right along the back wall · Y+ = up · Z+ = into the room
@@ -137,16 +374,21 @@ STEP 5 — EXACT POSITION CHAINING (no gaps, no overlaps)
     centerUnit.width = roomWidth − leftUnit.width − rightUnit.width
 
 STEP 6 — FINISH CONSISTENCY (CRITICAL)
-  Choose ONE primaryFinish for ALL non-glass units that best matches the design concept:
-    "light_oak"     → light/blonde/Scandinavian/oak/warm wood look
+  Choose ONE primaryFinish for ALL non-glass units that best matches the design concept.
+
+    "light_oak"     → light/blonde/Scandinavian/oak/warm wood look (DEFAULT for living rooms unless otherwise specified)
     "natural_wood"  → medium brown natural wood tones
     "dark_walnut"   → dark walnut, espresso, dark stains
     "white_painted" → painted white, off-white, Shaker white
-    "modern_gloss"  → high-gloss lacquer, contemporary dark/anthracite
+    "modern_gloss"  → high-gloss lacquer, contemporary dark/anthracite (use ONLY if user
+                      explicitly says "gloss", "lacquer", "black", or "high-shine")
     "metal"         → industrial metal/steel look
 
   Rules:
   · Set primaryFinish = the dominant finish for the room.
+  · Your designConcept MUST verbally describe the same finish — e.g. if primaryFinish
+    is "light_oak", the concept must mention "light oak" or "warm oak" (NOT "gloss lacquer").
+  · Do NOT pick "modern_gloss" for cozy/warm/inviting rooms — pick a wood finish.
   · Every cabinet's parameters.finishStyle MUST equal primaryFinish — EXCEPT fish tanks,
     aquariums, and glass display cases which MUST use "glass".
   · NEVER mix finishes across cabinets unless the user explicitly asked for two-tone.
@@ -206,6 +448,11 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
                         parameters: {
                           type: "object",
                           properties: {
+                            role: {
+                              type: "string",
+                              enum: ["cabinet", "opening", "led_strip"],
+                              description: "Functional role. 'cabinet' (default) = physical millwork. 'opening' = intentional empty space, e.g. a TV mount recess — real dimensions, no doors or shelves, skipped by DXF. 'led_strip' = a decorative LED lighting strip, rendered as a warm glow in 3D and skipped by DXF.",
+                            },
                             doorCount:          { type: "number" },
                             drawerCount:        { type: "number" },
                             shelfCount:         { type: "number" },
@@ -259,13 +506,18 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
 
     const design = JSON.parse(toolCall.function.arguments) as CopilotResult;
 
-    // ── Step 2: Build image prompt using the actual finish so the render matches the 3D ──
-    const finishDesc = FINISH_VISUAL[design.primaryFinish] ?? "natural wood";
-    const imagePrompt =
-      `Photorealistic interior design render: ${body.prompt}. ` +
-      `${finishDesc} built-in cabinetry and millwork. ` +
-      `Beautiful natural lighting, professional architectural photography, showroom quality. ` +
-      `No text or labels in the image.`;
+    // ── Step 2: Server-side validation + normalization ────────────────────────
+    // Filter phantom TV placeholders, force finish consistency, extract TV zone.
+    // The cleaned cabinetList becomes the single source of truth for both the
+    // image prompt and the DXF/3D geometry the client will render.
+    const { cabinets, tvZone } = validateAndRepairSpec(design);
+    design.cabinetList = cabinets;
+
+    // ── Step 3: Build image prompt from the validated CabinetSpec ─────────────
+    // The image is derived from the SAME spec the 3D uses, so what you see
+    // in the render is what appears in the 3D panel and the DXF.
+    const fv = FINISH_VISUAL[design.primaryFinish] ?? FINISH_VISUAL.natural_wood;
+    const imagePrompt = describeDesignForImage(design, cabinets, tvZone, fv);
 
     // ── Step 3: Generate image (non-fatal) ────────────────────────────────────
     const imageResponse = await client.images.generate({
