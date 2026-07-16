@@ -60,56 +60,73 @@ function isGlassUnit(cab: AICabinetSpec): boolean {
 }
 
 // Heuristic to catch open-display units the AI labels as `role: "cabinet"`.
-// Guardrails: if the AI explicitly set doorCount>0 or drawerCount>0, TRUST that
-// as a signal of a closed cabinet even if the name mentions "shelf". Otherwise,
-// look for open-shelf language in the name/notes.
+// Strong shelf language wins UNLESS the AI explicitly said "doors/drawers/glass"
+// somewhere in the name/notes — then we trust the AI's closed-cabinet intent.
+// This lets us fix "Display Shelf" that accidentally got doorCount=2, while still
+// preserving "Bookcase with glass doors" as a legitimately closed unit.
 function looksLikeOpenShelf(cab: AICabinetSpec): boolean {
   if (cab.parameters.role === "open_shelf") return true;
 
-  // Respect explicit closed-cabinet intent
-  const explicitFronts =
-    (cab.parameters.doorCount   ?? 0) > 0 ||
-    (cab.parameters.drawerCount ?? 0) > 0;
-  if (explicitFronts) return false;
-
   const text = `${cab.name ?? ""} ${cab.notes ?? ""}`.toLowerCase();
 
-  const hasShelfLanguage =
-    text.includes("open shelf")     ||
-    text.includes("open shelves")   ||
-    text.includes("display shelf")  ||
-    text.includes("display shelves")||
-    text.includes("open display")   ||
-    text.includes("cubby")          ||
-    text.includes("cubbies")        ||
+  const hasStrongShelfLanguage =
+    text.includes("open shelf")        ||
+    text.includes("open shelves")      ||
+    text.includes("display shelf")     ||
+    text.includes("display shelves")   ||
+    text.includes("open display")      ||
+    text.includes("cubby")             ||
+    text.includes("cubbies")           ||
+    text.includes("bookcase")          ||
+    text.includes("bookcase bay")      ||
     text.includes("led-backlit shelf") ||
-    text.includes("led shelf")      ||
-    text.includes("led shelves")    ||
+    text.includes("led shelf")         ||
+    text.includes("led shelves")       ||
     text.includes("open shelving");
+  if (!hasStrongShelfLanguage) return false;
 
-  const hasClosedCabinetLanguage =
-    text.includes("door")   ||
-    text.includes("closed") ||
-    text.includes("drawer") ||
-    text.includes("pantry") ||
-    text.includes("tower")  ||
-    text.includes("wardrobe");
+  // Narrow safeguard — bail out ONLY when the AI both set explicit front counts
+  // AND explicitly said "doors / drawers / glass" in the name/notes.
+  const explicitlyDoored =
+    ((cab.parameters.doorCount   ?? 0) > 0 || (cab.parameters.drawerCount ?? 0) > 0) &&
+    /\b(doors?|drawers?|glass)\b/.test(text);
+  if (explicitlyDoored) return false;
 
-  return hasShelfLanguage && !hasClosedCabinetLanguage;
+  const hasStrongClosedLanguage =
+    text.includes("pantry")             ||
+    text.includes("wardrobe")           ||
+    text.includes("appliance garage")   ||
+    text.includes("closed tall cabinet");
+  if (hasStrongClosedLanguage) return false;
+
+  return true;
+}
+
+// Denser default grid — 900 mm shelf now → 3 columns × 3 rows instead of 1×3.
+// Matches what a real display wall looks like (visible dividers, not one big box).
+function defaultColumns(widthMm: number): number {
+  if (widthMm > 1200) return 4;
+  if (widthMm > 800)  return 3;
+  if (widthMm > 450)  return 2;
+  return 1;
+}
+function defaultRows(heightMm: number): number {
+  if (heightMm > 1200) return 4;
+  if (heightMm > 700)  return 3;
+  if (heightMm > 350)  return 2;
+  return 1;
 }
 
 function repairDisplayShelfRole(cab: AICabinetSpec): AICabinetSpec {
   if (!looksLikeOpenShelf(cab)) return cab;
   if (cab.parameters.role === "open_shelf") return cab; // already correct
 
-  const columns =
-    typeof cab.parameters.columns === "number"
-      ? cab.parameters.columns
-      : cab.width > 900 ? 2 : 1;
-  const rows =
-    typeof cab.parameters.rows === "number"
-      ? cab.parameters.rows
-      : cab.height > 700 ? 3 : 2;
+  const columns = typeof cab.parameters.columns === "number" && cab.parameters.columns > 0
+    ? cab.parameters.columns
+    : defaultColumns(cab.width);
+  const rows = typeof cab.parameters.rows === "number" && cab.parameters.rows > 0
+    ? cab.parameters.rows
+    : defaultRows(cab.height);
 
   return {
     ...cab,

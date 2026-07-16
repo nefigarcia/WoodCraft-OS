@@ -273,13 +273,28 @@ function compileFrontPanels(
 // Deterministic column/row grid used for `role: "open_shelf"` units (display
 // cubbies). Skips fronts, toe kick, and countertop — this IS the visible cabinet.
 
+// Denser default column/row tiers — a 900 mm shelf gets a real visible grid,
+// not a single-column empty box. Kept in sync with the API route's fallback.
+function defaultColumns(widthMm: number): number {
+  if (widthMm > 1200) return 4;
+  if (widthMm > 800)  return 3;
+  if (widthMm > 450)  return 2;
+  return 1;
+}
+function defaultRows(heightMm: number): number {
+  if (heightMm > 1200) return 4;
+  if (heightMm > 700)  return 3;
+  if (heightMm > 350)  return 2;
+  return 1;
+}
+
 function compileOpenShelfGrid(cab: CabinetSpecInput, unitId: string): CompiledShelf[] {
   const w = cab.width;
   const h = cab.height;
   const d = cab.depth;
 
-  const columns = Math.max(1, Math.min(4, Number(cab.parameters.columns ?? (w > 900 ? 3 : 2))));
-  const rows    = Math.max(1, Math.min(5, Number(cab.parameters.rows    ?? (h > 700 ? 3 : 2))));
+  const columns = Math.max(1, Math.min(4, Number(cab.parameters.columns ?? defaultColumns(w))));
+  const rows    = Math.max(1, Math.min(5, Number(cab.parameters.rows    ?? defaultRows(h))));
 
   const shelves: CompiledShelf[] = [];
 
