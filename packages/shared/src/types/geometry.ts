@@ -21,12 +21,16 @@ export interface CabinetSpecInput {
   posY?: number;
   posZ?: number;
   parameters: {
-    role?: "cabinet" | "opening" | "led_strip";
+    role?: "cabinet" | "opening" | "led_strip" | "open_shelf";
     doorCount?: number;
     drawerCount?: number;
     shelfCount?: number;
     toeKickHeight?: number;
     finishStyle?: string;
+    /** For role="open_shelf": how many vertical bays (dividers + 1). */
+    columns?: number;
+    /** For role="open_shelf": how many horizontal rows (shelves + 1). */
+    rows?: number;
     [key: string]: unknown;
   };
   notes?: string;
@@ -58,10 +62,32 @@ export interface CompiledCountertop {
   overhangSidesMm: number;
 }
 
+// Interior carcass parts. All coordinates are cabinet-local (origin at
+// back-left-bottom, mm). Emitted for open-shelf units so cubbies show up in the
+// 3D scene and DXF export.
+export interface CompiledShelf {
+  id: string;
+  kind:
+    | "horizontal_shelf"
+    | "vertical_divider"
+    | "back_panel"
+    | "left_panel"
+    | "right_panel"
+    | "top_panel"
+    | "bottom_panel";
+  x: number;
+  y: number;
+  z: number;
+  widthMm: number;
+  heightMm: number;
+  depthMm: number;
+}
+
 export interface CompiledFeatures {
   toeKickHeightMm: number;                 // 0 = none
   countertop: CompiledCountertop | null;
   fronts: CompiledFrontPanel[];
+  shelves: CompiledShelf[];                // empty for closed cabinets
 }
 
 export type RowClass =
@@ -76,7 +102,7 @@ export interface CompiledUnit {
   id: string;
   name: string;
   type: CabinetType;
-  role: "cabinet" | "opening" | "led_strip";
+  role: "cabinet" | "opening" | "led_strip" | "open_shelf";
   finishStyle: string;
   // World-space bounding box (mm) with origin = back-left corner of the room at floor
   posX: number; posY: number; posZ: number;
@@ -86,7 +112,7 @@ export interface CompiledUnit {
 }
 
 export interface CompiledSummary {
-  unitCount: number;      // role === "cabinet" only
+  unitCount: number;         // role === "cabinet" only
   towerCount: number;
   baseRowCount: number;
   midRowCount: number;
@@ -95,6 +121,8 @@ export interface CompiledSummary {
   drawerCount: number;
   ledStripCount: number;
   tvRecessCount: number;
+  openShelfCount: number;    // role === "open_shelf"
+  shelfPanelCount: number;   // total horizontal shelves + dividers + back panels
 }
 
 export interface CompiledOverall {
@@ -129,6 +157,7 @@ const PGAP_MM        = 2;    // reveal gap between adjacent front panels
 const COUNTERTOP_MM  = 38;
 const COUNTERTOP_OVF = 19;   // front overhang (kitchen base)
 const COUNTERTOP_OVI = 38;   // all-sides overhang (island)
+const PANEL_T_MM     = 19;   // 3/4" nominal panel thickness (shelves, dividers, back)
 
 function isKitchenHeight(heightMm: number): boolean {
   return heightMm >= 800 && heightMm <= 950;
@@ -240,6 +269,89 @@ function compileFrontPanels(
   return fronts;
 }
 
+// ── Open-shelf carcass grid (back panel + horizontal shelves + vertical dividers) ─
+// Deterministic column/row grid used for `role: "open_shelf"` units (display
+// cubbies). Skips fronts, toe kick, and countertop — this IS the visible cabinet.
+
+function compileOpenShelfGrid(cab: CabinetSpecInput, unitId: string): CompiledShelf[] {
+  const w = cab.width;
+  const h = cab.height;
+  const d = cab.depth;
+
+  const columns = Math.max(1, Math.min(4, Number(cab.parameters.columns ?? (w > 900 ? 3 : 2))));
+  const rows    = Math.max(1, Math.min(5, Number(cab.parameters.rows    ?? (h > 700 ? 3 : 2))));
+
+  const shelves: CompiledShelf[] = [];
+
+  // Outer frame — bottom, top, left, right. The open shelf is a see-through box,
+  // so CabinetMesh does NOT draw a solid carcass; these four panels + the back
+  // panel + internal shelves/dividers together form the visible cabinet.
+  shelves.push({
+    id: `${unitId}__bottom_panel`,
+    kind: "bottom_panel",
+    x: 0, y: 0, z: 0,
+    widthMm: w, heightMm: PANEL_T_MM, depthMm: d,
+  });
+  shelves.push({
+    id: `${unitId}__top_panel`,
+    kind: "top_panel",
+    x: 0, y: Math.max(0, h - PANEL_T_MM), z: 0,
+    widthMm: w, heightMm: PANEL_T_MM, depthMm: d,
+  });
+  shelves.push({
+    id: `${unitId}__left_panel`,
+    kind: "left_panel",
+    x: 0, y: 0, z: 0,
+    widthMm: PANEL_T_MM, heightMm: h, depthMm: d,
+  });
+  shelves.push({
+    id: `${unitId}__right_panel`,
+    kind: "right_panel",
+    x: Math.max(0, w - PANEL_T_MM), y: 0, z: 0,
+    widthMm: PANEL_T_MM, heightMm: h, depthMm: d,
+  });
+
+  // Back panel — sits against the back of the carcass
+  shelves.push({
+    id: `${unitId}__back_panel`,
+    kind: "back_panel",
+    x: 0, y: 0, z: Math.max(0, d - PANEL_T_MM),
+    widthMm: w, heightMm: h, depthMm: PANEL_T_MM,
+  });
+
+  // Horizontal shelves — one at each interior row boundary
+  const interiorW = Math.max(0, w - 2 * PANEL_T_MM);
+  for (let r = 1; r < rows; r++) {
+    shelves.push({
+      id: `${unitId}__h_shelf_${r}`,
+      kind: "horizontal_shelf",
+      x: PANEL_T_MM,
+      y: (h / rows) * r - PANEL_T_MM / 2,
+      z: 0,
+      widthMm: interiorW,
+      heightMm: PANEL_T_MM,
+      depthMm: Math.max(0, d - PANEL_T_MM),
+    });
+  }
+
+  // Vertical dividers — one at each interior column boundary
+  const interiorH = Math.max(0, h - 2 * PANEL_T_MM);
+  for (let c = 1; c < columns; c++) {
+    shelves.push({
+      id: `${unitId}__v_divider_${c}`,
+      kind: "vertical_divider",
+      x: (w / columns) * c - PANEL_T_MM / 2,
+      y: PANEL_T_MM,
+      z: 0,
+      widthMm: PANEL_T_MM,
+      heightMm: interiorH,
+      depthMm: Math.max(0, d - PANEL_T_MM),
+    });
+  }
+
+  return shelves;
+}
+
 // ── Per-unit compiler (exported so 3D can compile a single DB cabinet) ────────
 
 export function compileUnit(
@@ -247,29 +359,47 @@ export function compileUnit(
   primaryFinish: string,
   idx: number = 0,
 ): CompiledUnit {
-  const role     = (cab.parameters.role ?? "cabinet") as CompiledUnit["role"];
+  const rawRole  = cab.parameters.role ?? "cabinet";
   const rowClass = classifyRow(cab.type, cab.posY ?? 0);
   const finish   = cab.parameters.finishStyle ?? primaryFinish;
+  const unitId   = `unit_${idx + 1}`;
+  const base = {
+    id: unitId,
+    name: cab.name,
+    type: cab.type,
+    finishStyle: finish,
+    posX: cab.posX ?? 0,
+    posY: cab.posY ?? 0,
+    posZ: cab.posZ ?? 0,
+    width: cab.width,
+    height: cab.height,
+    depth: cab.depth,
+    rowClass,
+  };
 
-  if (role !== "cabinet") {
+  // Openings and LED strips have no cabinet features.
+  if (rawRole === "opening" || rawRole === "led_strip") {
+    return { ...base, role: rawRole, features: null };
+  }
+
+  // Open display shelves — cubby grid, no fronts, no toe kick, no countertop.
+  // This is a display unit; whatever the AI called it (base/wall/tall), the
+  // fact that it's `role: "open_shelf"` means the front is open air.
+  if (rawRole === "open_shelf") {
     return {
-      id: `unit_${idx + 1}`,
-      name: cab.name,
-      type: cab.type,
-      role,
-      finishStyle: finish,
-      posX: cab.posX ?? 0,
-      posY: cab.posY ?? 0,
-      posZ: cab.posZ ?? 0,
-      width: cab.width,
-      height: cab.height,
-      depth: cab.depth,
-      features: null,
-      rowClass,
+      ...base,
+      role: "open_shelf",
+      features: {
+        toeKickHeightMm: 0,
+        countertop: null,
+        fronts: [],
+        shelves: compileOpenShelfGrid(cab, unitId),
+      },
     };
   }
 
-  const toeH = needsToeKick(cab.type) ? TOE_MM : 0;
+  // Default closed cabinet — toe kick + optional countertop + door/drawer fronts.
+  const toeH     = needsToeKick(cab.type) ? TOE_MM : 0;
   const isIsland = cab.type === "island";
   const countertop: CompiledCountertop | null = needsCountertop(cab.type, cab.height)
     ? {
@@ -279,22 +409,15 @@ export function compileUnit(
       }
     : null;
 
-  const fronts = compileFrontPanels(cab, toeH);
-
   return {
-    id: `unit_${idx + 1}`,
-    name: cab.name,
-    type: cab.type,
-    role,
-    finishStyle: finish,
-    posX: cab.posX ?? 0,
-    posY: cab.posY ?? 0,
-    posZ: cab.posZ ?? 0,
-    width: cab.width,
-    height: cab.height,
-    depth: cab.depth,
-    features: { toeKickHeightMm: toeH, countertop, fronts },
-    rowClass,
+    ...base,
+    role: "cabinet",
+    features: {
+      toeKickHeightMm: toeH,
+      countertop,
+      fronts: compileFrontPanels(cab, toeH),
+      shelves: [],
+    },
   };
 }
 
@@ -310,15 +433,17 @@ export function compileGeometry(
 
   // Summary — counts of everything the compiler produced
   const summary: CompiledSummary = {
-    unitCount:      units.filter((u) => u.role === "cabinet").length,
-    towerCount:     units.filter((u) => u.rowClass === "tower").length,
-    baseRowCount:   units.filter((u) => u.role === "cabinet" && u.rowClass === "base").length,
-    midRowCount:    units.filter((u) => u.role === "cabinet" && u.rowClass === "middle").length,
-    topRowCount:    units.filter((u) => u.role === "cabinet" && u.rowClass === "upper").length,
-    doorCount:      units.reduce((n, u) => n + (u.features?.fronts.filter((f) => f.kind === "door").length ?? 0), 0),
-    drawerCount:    units.reduce((n, u) => n + (u.features?.fronts.filter((f) => f.kind === "drawer").length ?? 0), 0),
-    ledStripCount:  units.filter((u) => u.role === "led_strip").length,
-    tvRecessCount:  units.filter((u) => u.role === "opening").length,
+    unitCount:       units.filter((u) => u.role === "cabinet").length,
+    towerCount:      units.filter((u) => u.rowClass === "tower").length,
+    baseRowCount:    units.filter((u) => u.role === "cabinet" && u.rowClass === "base").length,
+    midRowCount:     units.filter((u) => u.role === "cabinet" && u.rowClass === "middle").length,
+    topRowCount:     units.filter((u) => u.role === "cabinet" && u.rowClass === "upper").length,
+    doorCount:       units.reduce((n, u) => n + (u.features?.fronts.filter((f) => f.kind === "door").length ?? 0), 0),
+    drawerCount:     units.reduce((n, u) => n + (u.features?.fronts.filter((f) => f.kind === "drawer").length ?? 0), 0),
+    ledStripCount:   units.filter((u) => u.role === "led_strip").length,
+    tvRecessCount:   units.filter((u) => u.role === "opening").length,
+    openShelfCount:  units.filter((u) => u.role === "open_shelf").length,
+    shelfPanelCount: units.reduce((n, u) => n + (u.features?.shelves.length ?? 0), 0),
   };
 
   const opening = units.find((u) => u.role === "opening");

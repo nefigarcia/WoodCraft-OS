@@ -119,6 +119,17 @@ function emitBox(
   return dxfBox(layer, c.x, c.y, c.z, c.w, c.d, c.h);
 }
 
+// Map compiled shelf/frame `kind` to a short DXF sub-layer tag.
+const SHELF_KIND_TAG: Record<string, string> = {
+  horizontal_shelf: "SHELF",
+  vertical_divider: "DIVIDER",
+  back_panel:       "BACKPANEL",
+  left_panel:       "LEFTPANEL",
+  right_panel:      "RIGHTPANEL",
+  top_panel:        "TOPPANEL",
+  bottom_panel:     "BOTTOMPANEL",
+};
+
 function unitToBlocks(
   unit: CompiledUnit,
   baseLayer: string,
@@ -129,13 +140,19 @@ function unitToBlocks(
   const blocks: string[] = [];
 
   // Skip openings and LED strips — not physical millwork
-  if (unit.role !== "cabinet" || !unit.features) return blocks;
+  if ((unit.role !== "cabinet" && unit.role !== "open_shelf") || !unit.features) return blocks;
 
-  const carcassLayer = `${baseLayer}__CARCASS`;
-  layerNames.push(carcassLayer);
+  // Solid carcass — only for closed cabinets. Open shelves emit their frame
+  // as individual panels (see the shelves loop below).
+  const isOpenShelf = unit.role === "open_shelf";
   const toeH = unit.features.toeKickHeightMm;
-  const carcassH = unit.height - toeH;
-  blocks.push(emitBox(carcassLayer, axis, unit.posX, unit.posY + toeH, unit.posZ, unit.width, carcassH, unit.depth));
+
+  if (!isOpenShelf) {
+    const carcassLayer = `${baseLayer}__CARCASS`;
+    layerNames.push(carcassLayer);
+    const carcassH = unit.height - toeH;
+    blocks.push(emitBox(carcassLayer, axis, unit.posX, unit.posY + toeH, unit.posZ, unit.width, carcassH, unit.depth));
+  }
 
   if (toeH > 0) {
     const toeLayer = `${baseLayer}__TOEKICK`;
@@ -157,6 +174,22 @@ function unitToBlocks(
       unit.depth + ct.overhangFrontMm,
     ));
   }
+
+  // Compiled shelf/frame panels (open shelves) — emit each on its own sub-layer
+  unit.features.shelves.forEach((s, i) => {
+    const tag = SHELF_KIND_TAG[s.kind] ?? "PANEL";
+    const layer = `${baseLayer}__${tag}_${String(i + 1).padStart(2, "0")}`;
+    layerNames.push(layer);
+    blocks.push(emitBox(
+      layer, axis,
+      unit.posX + s.x,
+      unit.posY + s.y,
+      unit.posZ + s.z,
+      s.widthMm,
+      s.heightMm,
+      s.depthMm,
+    ));
+  });
 
   if (breakoutFronts) {
     unit.features.fronts.forEach((f, i) => {

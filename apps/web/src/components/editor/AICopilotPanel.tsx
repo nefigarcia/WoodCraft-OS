@@ -30,7 +30,9 @@ export interface AICabinetSpec {
   /** Which wall this cabinet runs against — drives orientation in 3D */
   wallSide?: "back" | "left" | "right" | "island" | "none";
   parameters: {
-    role?: "cabinet" | "opening" | "led_strip";
+    role?: "cabinet" | "opening" | "led_strip" | "open_shelf";
+    columns?: number;
+    rows?: number;
     doorCount?: number;
     drawerCount?: number;
     shelfCount?: number;
@@ -86,10 +88,11 @@ function normalizeFinishes(result: CopilotResult): AICabinetSpec[] {
   return result.cabinetList
     .filter(
       (cab) =>
-        // Keep proper role-tagged units (openings and LED strips are first-class).
-        // Only drop the legacy phantom-named units the AI sometimes still emits.
+        // Keep proper role-tagged units — openings, LED strips, and open shelves
+        // are first-class. Only drop legacy phantom-named units the AI still emits.
         cab.parameters.role === "opening" ||
         cab.parameters.role === "led_strip" ||
+        cab.parameters.role === "open_shelf" ||
         !isPhantomTvUnit(cab),
     )
     .map((cab) => ({

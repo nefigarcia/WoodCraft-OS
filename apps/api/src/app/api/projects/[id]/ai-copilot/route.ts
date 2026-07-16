@@ -18,7 +18,9 @@ interface AICabinetSpec {
   posZ: number;
   wallSide: "back" | "left" | "right" | "island" | "none";
   parameters: {
-    role?: "cabinet" | "opening" | "led_strip";
+    role?: "cabinet" | "opening" | "led_strip" | "open_shelf";
+    columns?: number;
+    rows?: number;
     doorCount?: number;
     drawerCount?: number;
     shelfCount?: number;
@@ -76,14 +78,15 @@ function validateAndRepairSpec(design: CopilotResult): {
       }
     : null;
 
-  // Keep role="opening" and role="led_strip" units — they render specially in 3D
-  // and are skipped by the DXF exporter. Only drop the LEGACY unlabeled phantoms
-  // (units that look like "TV Recess" but never set parameters.role).
+  // Keep role="opening", "led_strip", and "open_shelf" units — they render
+  // specially in 3D and each has its own DXF export behavior. Only drop LEGACY
+  // unlabeled phantoms (units named like "TV Recess" but never set parameters.role).
   const cabinets = design.cabinetList
     .filter(
       (c) =>
         c.parameters.role === "opening" ||
         c.parameters.role === "led_strip" ||
+        c.parameters.role === "open_shelf" ||
         !isPhantomTvUnit(c),
     )
     .map((c) => ({
@@ -116,9 +119,11 @@ function describeDesignForImage(
 ): string {
   const { overall, summary, units, tvRecess } = geometry;
   const towers  = units.filter((u) => u.rowClass === "tower");
-  const baseRow = units.filter((u) => u.role === "cabinet" && u.rowClass === "base");
-  const midRow  = units.filter((u) => u.role === "cabinet" && u.rowClass === "middle");
-  const topRow  = units.filter((u) => u.role === "cabinet" && u.rowClass === "upper");
+  // Rows include both closed cabinets and open shelves — they're the physical millwork.
+  const isMillwork = (u: { role: string }) => u.role === "cabinet" || u.role === "open_shelf";
+  const baseRow = units.filter((u) => isMillwork(u) && u.rowClass === "base");
+  const midRow  = units.filter((u) => isMillwork(u) && u.rowClass === "middle");
+  const topRow  = units.filter((u) => isMillwork(u) && u.rowClass === "upper");
 
   const parts: string[] = [
     `Photorealistic front-elevation architectural render of ${fv.desc} built-in ${overall.roomType} cabinetry.`,
@@ -148,8 +153,16 @@ function describeDesignForImage(
 
   if (midRow.length > 0) {
     const m = midRow[0];
+    // Total cubbies across every open-shelf unit in the middle row — derived
+    // from the compiled shelf features so the count matches the 3D exactly.
+    const totalCubbies = midRow.reduce((n, u) => {
+      if (u.role !== "open_shelf" || !u.features) return n;
+      const hShelves  = u.features.shelves.filter((s) => s.kind === "horizontal_shelf").length;
+      const vDividers = u.features.shelves.filter((s) => s.kind === "vertical_divider").length;
+      return n + (hShelves + 1) * (vDividers + 1);
+    }, 0);
     parts.push(
-      `Middle row above the base: ${midRow.length} open display shelves${tvRecess ? " flanking a central TV mount recess" : ""}, each about ${mmToIn(m.width)} wide × ${mmToIn(m.height)} tall × ${mmToIn(m.depth)} deep, interiors backlit with warm integrated LED strips.`,
+      `Middle row above the base: ${midRow.length} open display shelf unit${midRow.length === 1 ? "" : "s"}${tvRecess ? " flanking a central TV mount recess" : ""}, each about ${mmToIn(m.width)} wide × ${mmToIn(m.height)} tall × ${mmToIn(m.depth)} deep. ${totalCubbies > 0 ? `Show exactly ${totalCubbies} individual cubbies visible as a grid of horizontal shelves and vertical dividers — NO doors, NO drawer fronts covering the openings. ` : ""}Interiors backlit with warm integrated LED strips.`,
     );
   }
 
@@ -285,16 +298,25 @@ Living room / Entertainment / Display wall (MUST produce 10–15 units, layered)
     · Notes: "base drawer unit"
 
   ROW 2 — MIDDLE OPEN SHELVES / TV (posY = 610, height 610–914 mm, depth 305 mm)
+    Every unit in this row that is an OPEN DISPLAY SHELF (cubbies, no doors)
+    MUST have parameters.role = "open_shelf" and specify columns and rows.
+    Examples:
+      · A wide shelf next to a TV: role="open_shelf", columns=2, rows=3
+      · A single tall cubby column: role="open_shelf", columns=1, rows=4
+    If you leave role as "cabinet" the unit renders WITH doors — that's wrong
+    for display shelves.
+
     IF NO TV in the prompt:
       · Emit 3–4 wall-type OPEN DISPLAY SHELVES that fill the space between towers
-      · Each 600–900 mm wide
+      · Each 600–900 mm wide, role="open_shelf", columns 1–2, rows 2–3
       · Notes: "open display shelf" or "LED-backlit shelf"
 
     IF THE PROMPT MENTIONS A TV — follow this recipe EXACTLY:
       · Compute middleSpan = roomWidth − leftTower.width − rightTower.width
       · Compute tvOpening = clamp(1200, 1000, middleSpan − 600)
       · Compute sideShelfWidth = (middleSpan − tvOpening) / 2
-      · Emit 2 wall-type shelves in ROW 2:
+      · Emit 2 wall-type OPEN SHELVES flanking the TV (role="open_shelf",
+        columns=1, rows=3):
           shelf_L: posX = leftTower.width,                 width = sideShelfWidth
           shelf_R: posX = leftTower.width + sideShelfWidth + tvOpening,  width = sideShelfWidth
       · Also emit ONE explicit OPENING unit for the TV recess itself:
@@ -453,8 +475,16 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
                           properties: {
                             role: {
                               type: "string",
-                              enum: ["cabinet", "opening", "led_strip"],
-                              description: "Functional role. 'cabinet' (default) = physical millwork. 'opening' = intentional empty space, e.g. a TV mount recess — real dimensions, no doors or shelves, skipped by DXF. 'led_strip' = a decorative LED lighting strip, rendered as a warm glow in 3D and skipped by DXF.",
+                              enum: ["cabinet", "opening", "led_strip", "open_shelf"],
+                              description: "Functional role. 'cabinet' (default) = closed millwork with doors/drawers. 'open_shelf' = open display unit — no doors, rendered as a grid of cubbies via `columns` × `rows`. 'opening' = intentional empty space, e.g. a TV mount recess. 'led_strip' = a decorative LED lighting strip, rendered as a warm glow in 3D and skipped by DXF.",
+                            },
+                            columns: {
+                              type: "number",
+                              description: "For role='open_shelf' only. Number of vertical bays (1–4). Vertical dividers = columns − 1.",
+                            },
+                            rows: {
+                              type: "number",
+                              description: "For role='open_shelf' only. Number of horizontal rows (1–5). Horizontal shelves = rows − 1.",
                             },
                             doorCount:          { type: "number" },
                             drawerCount:        { type: "number" },

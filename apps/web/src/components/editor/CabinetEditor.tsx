@@ -110,16 +110,43 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
   const topD = d + topOvF;
   const topZC = topD / 2;
 
+  const isOpenShelf = unit.role === "open_shelf";
+
   return (
     <group
       position={[gx, gy, gz]}
       onClick={(e) => { e.stopPropagation(); selectCabinet(cabinet.id); }}
     >
-      {/* Carcass body — back to front-minus-door-thickness */}
-      <mesh position={[w / 2, toeH + carcassH / 2, carcassD / 2]} castShadow receiveShadow>
-        <boxGeometry args={[w, carcassH, carcassD]} />
-        <meshStandardMaterial color={C.carcass} roughness={0.8} metalness={0.02} />
-      </mesh>
+      {/* Solid carcass — skip for open shelves (they render as an open frame
+          via the compiled shelves list below). */}
+      {!isOpenShelf && (
+        <mesh position={[w / 2, toeH + carcassH / 2, carcassD / 2]} castShadow receiveShadow>
+          <boxGeometry args={[w, carcassH, carcassD]} />
+          <meshStandardMaterial color={C.carcass} roughness={0.8} metalness={0.02} />
+        </mesh>
+      )}
+
+      {/* Compiled shelf/frame panels — outer frame + back + horizontal shelves + vertical dividers */}
+      {(features?.shelves ?? []).map((s) => {
+        const sw = s.widthMm  / 1000;
+        const sh = s.heightMm / 1000;
+        const sd = s.depthMm  / 1000;
+        return (
+          <mesh
+            key={s.id}
+            position={[
+              s.x / 1000 + sw / 2,
+              s.y / 1000 + sh / 2,
+              s.z / 1000 + sd / 2,
+            ]}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[sw, sh, sd]} />
+            <meshStandardMaterial color={C.carcass} roughness={0.65} metalness={0.03} />
+          </mesh>
+        );
+      })}
 
       {/* Toe-kick board — bottom-front strip */}
       {toeH > 0 && (
