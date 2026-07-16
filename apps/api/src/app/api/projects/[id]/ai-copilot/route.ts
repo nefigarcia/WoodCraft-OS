@@ -59,6 +59,74 @@ function isGlassUnit(cab: AICabinetSpec): boolean {
   );
 }
 
+// Heuristic to catch open-display units the AI labels as `role: "cabinet"`.
+// Guardrails: if the AI explicitly set doorCount>0 or drawerCount>0, TRUST that
+// as a signal of a closed cabinet even if the name mentions "shelf". Otherwise,
+// look for open-shelf language in the name/notes.
+function looksLikeOpenShelf(cab: AICabinetSpec): boolean {
+  if (cab.parameters.role === "open_shelf") return true;
+
+  // Respect explicit closed-cabinet intent
+  const explicitFronts =
+    (cab.parameters.doorCount   ?? 0) > 0 ||
+    (cab.parameters.drawerCount ?? 0) > 0;
+  if (explicitFronts) return false;
+
+  const text = `${cab.name ?? ""} ${cab.notes ?? ""}`.toLowerCase();
+
+  const hasShelfLanguage =
+    text.includes("open shelf")     ||
+    text.includes("open shelves")   ||
+    text.includes("display shelf")  ||
+    text.includes("display shelves")||
+    text.includes("open display")   ||
+    text.includes("cubby")          ||
+    text.includes("cubbies")        ||
+    text.includes("led-backlit shelf") ||
+    text.includes("led shelf")      ||
+    text.includes("led shelves")    ||
+    text.includes("open shelving");
+
+  const hasClosedCabinetLanguage =
+    text.includes("door")   ||
+    text.includes("closed") ||
+    text.includes("drawer") ||
+    text.includes("pantry") ||
+    text.includes("tower")  ||
+    text.includes("wardrobe");
+
+  return hasShelfLanguage && !hasClosedCabinetLanguage;
+}
+
+function repairDisplayShelfRole(cab: AICabinetSpec): AICabinetSpec {
+  if (!looksLikeOpenShelf(cab)) return cab;
+  if (cab.parameters.role === "open_shelf") return cab; // already correct
+
+  const columns =
+    typeof cab.parameters.columns === "number"
+      ? cab.parameters.columns
+      : cab.width > 900 ? 2 : 1;
+  const rows =
+    typeof cab.parameters.rows === "number"
+      ? cab.parameters.rows
+      : cab.height > 700 ? 3 : 2;
+
+  return {
+    ...cab,
+    parameters: {
+      ...cab.parameters,
+      role: "open_shelf",
+      columns,
+      rows,
+      doorCount: 0,
+      drawerCount: 0,
+    },
+    notes: cab.notes
+      ? `${cab.notes} | repaired as open display shelf`
+      : "repaired as open display shelf",
+  };
+}
+
 function validateAndRepairSpec(design: CopilotResult): {
   cabinets: AICabinetSpec[];
   tvZone: TvZone | null;
@@ -89,6 +157,9 @@ function validateAndRepairSpec(design: CopilotResult): {
         c.parameters.role === "open_shelf" ||
         !isPhantomTvUnit(c),
     )
+    // Repair mislabeled display shelves BEFORE finish normalization so downstream
+    // role checks see the corrected value.
+    .map(repairDisplayShelfRole)
     .map((c) => ({
       ...c,
       parameters: {
@@ -153,16 +224,30 @@ function describeDesignForImage(
 
   if (midRow.length > 0) {
     const m = midRow[0];
-    // Total cubbies across every open-shelf unit in the middle row — derived
-    // from the compiled shelf features so the count matches the 3D exactly.
-    const totalCubbies = midRow.reduce((n, u) => {
-      if (u.role !== "open_shelf" || !u.features) return n;
-      const hShelves  = u.features.shelves.filter((s) => s.kind === "horizontal_shelf").length;
-      const vDividers = u.features.shelves.filter((s) => s.kind === "vertical_divider").length;
-      return n + (hShelves + 1) * (vDividers + 1);
-    }, 0);
     parts.push(
-      `Middle row above the base: ${midRow.length} open display shelf unit${midRow.length === 1 ? "" : "s"}${tvRecess ? " flanking a central TV mount recess" : ""}, each about ${mmToIn(m.width)} wide × ${mmToIn(m.height)} tall × ${mmToIn(m.depth)} deep. ${totalCubbies > 0 ? `Show exactly ${totalCubbies} individual cubbies visible as a grid of horizontal shelves and vertical dividers — NO doors, NO drawer fronts covering the openings. ` : ""}Interiors backlit with warm integrated LED strips.`,
+      `Middle row above the base: ${midRow.length} unit${midRow.length === 1 ? "" : "s"}${tvRecess ? " flanking a central TV mount recess" : ""}, each about ${mmToIn(m.width)} wide × ${mmToIn(m.height)} tall × ${mmToIn(m.depth)} deep.`,
+    );
+  }
+
+  // Per-unit open-shelf breakdown — tells the image model the EXACT cubby grid
+  // to render, unit by unit. If no open shelves exist, explicitly forbid the
+  // model from inventing any.
+  const openShelves = units.filter((u) => u.role === "open_shelf");
+  if (openShelves.length > 0) {
+    const shelfLines = openShelves.map((u) => {
+      const hShelves  = u.features?.shelves.filter((s) => s.kind === "horizontal_shelf").length ?? 0;
+      const vDividers = u.features?.shelves.filter((s) => s.kind === "vertical_divider").length ?? 0;
+      const rows      = hShelves + 1;
+      const cols      = vDividers + 1;
+      const cubbies   = rows * cols;
+      return `"${u.name}" (${mmToIn(u.width)}W × ${mmToIn(u.height)}H): ${cols} column${cols === 1 ? "" : "s"} × ${rows} row${rows === 1 ? "" : "s"} = ${cubbies} cubbies`;
+    });
+    parts.push(
+      `Open display shelf units — render EXACTLY as specified, no more, no fewer: ${openShelves.length} total. ${shelfLines.join(" · ")}. Each cubby is a rectangular open compartment with visible horizontal shelf and vertical divider edges. NO doors, NO drawer fronts, NO glass covering any cubby opening.`,
+    );
+  } else {
+    parts.push(
+      `IMPORTANT: There are NO open display shelves in this design. Do NOT invent open cubbies, shelf grids, or open shelving of any kind. Every visible cabinet has doors or drawers.`,
     );
   }
 
@@ -253,6 +338,20 @@ Always call generate_room_design with your complete findings.`,
           {
             role: "user",
             content: `Design request: "${body.prompt}"
+
+CRITICAL GEOMETRY RULE — DO NOT VIOLATE
+Any visible open cubby, open display shelf, LED-backlit shelf, bookcase bay, or
+open shelving unit MUST be emitted with:
+    parameters.role         = "open_shelf"
+    parameters.columns      = number of vertical bays (1–4)
+    parameters.rows         = number of horizontal rows (1–5)
+    parameters.doorCount    = 0
+    parameters.drawerCount  = 0
+
+NEVER represent an open display shelf as role="cabinet". NEVER put doorCount on
+an open shelf. If your concept mentions "display shelves", "open shelves",
+"cubbies", "LED shelves", or "open shelving", the geometry MUST be role="open_shelf".
+Closed cabinets with doors keep role="cabinet".
 
 STEP 1 — DETECT ROOM TYPE
 Identify the room from the prompt (kitchen, living room, bedroom, office, etc.). Default to "kitchen" only if explicitly mentioned or no room is specified.
@@ -476,7 +575,7 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
                             role: {
                               type: "string",
                               enum: ["cabinet", "opening", "led_strip", "open_shelf"],
-                              description: "Functional role. 'cabinet' (default) = closed millwork with doors/drawers. 'open_shelf' = open display unit — no doors, rendered as a grid of cubbies via `columns` × `rows`. 'opening' = intentional empty space, e.g. a TV mount recess. 'led_strip' = a decorative LED lighting strip, rendered as a warm glow in 3D and skipped by DXF.",
+                              description: "Functional role. 'cabinet' = CLOSED millwork with doors/drawers. 'open_shelf' is REQUIRED for display shelves, cubbies, LED shelving, bookcase bays, or any visible open shelf grid — DO NOT use 'cabinet' for these. 'opening' = intentional empty space, e.g. a TV mount recess. 'led_strip' = decorative LED lighting strip, rendered as a warm glow in 3D and skipped by DXF.",
                             },
                             columns: {
                               type: "number",
@@ -539,10 +638,44 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
 
     const design = JSON.parse(toolCall.function.arguments) as CopilotResult;
 
+    // Dev-only debug: what did the AI actually emit? (before any repair)
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[AI-COPILOT][RAW_UNITS]", {
+        primaryFinish: design.primaryFinish,
+        units: design.cabinetList.map((c) => ({
+          name: c.name,
+          type: c.type,
+          role: c.parameters?.role,
+          columns: c.parameters?.columns,
+          rows: c.parameters?.rows,
+          doorCount: c.parameters?.doorCount,
+          drawerCount: c.parameters?.drawerCount,
+          notes: c.notes,
+        })),
+      });
+    }
+
     // ── Step 2: Validation + Normalization ────────────────────────────────────
-    // Filter phantom TV placeholders, force finish consistency, extract TV zone.
+    // Filter phantom TV placeholders, force finish consistency, extract TV zone,
+    // and repair mislabeled display shelves.
     const { cabinets } = validateAndRepairSpec(design);
     design.cabinetList = cabinets;
+
+    // Dev-only debug: what did validation change?
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[AI-COPILOT][REPAIRED_UNITS]", {
+        units: cabinets.map((c) => ({
+          name: c.name,
+          type: c.type,
+          role: c.parameters?.role,
+          columns: c.parameters?.columns,
+          rows: c.parameters?.rows,
+          doorCount: c.parameters?.doorCount,
+          drawerCount: c.parameters?.drawerCount,
+          notes: c.notes,
+        })),
+      });
+    }
 
     // ── Step 3: Geometry Compiler ─────────────────────────────────────────────
     // Turn the validated spec into deterministic parametric geometry. Every
@@ -555,6 +688,21 @@ STEP 8 — COVER ALL COMPONENTS SEPARATELY
       design.roomType,
     );
     design.compiledGeometry = geometry;
+
+    // Dev-only debug: what did the compiler produce?
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[AI-COPILOT][COMPILED_UNITS]", {
+        summary: geometry.summary,
+        units: geometry.units.map((u) => ({
+          name: u.name,
+          type: u.type,
+          role: u.role,
+          rowClass: u.rowClass,
+          fronts:  u.features?.fronts.map((f) => f.kind)  ?? [],
+          shelves: u.features?.shelves.map((s) => s.kind) ?? [],
+        })),
+      });
+    }
 
     // ── Step 4: Outputs branch off the compiled geometry ──────────────────────
     // Output E: AI concept render. The image prompt describes the compiled
