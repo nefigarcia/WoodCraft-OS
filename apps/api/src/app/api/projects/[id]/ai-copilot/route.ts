@@ -65,6 +65,10 @@ function isGlassUnit(cab: AICabinetSpec): boolean {
 // This lets us fix "Display Shelf" that accidentally got doorCount=2, while still
 // preserving "Bookcase with glass doors" as a legitimately closed unit.
 function looksLikeOpenShelf(cab: AICabinetSpec): boolean {
+  // Never repair sibling roles into open_shelf. LED strips especially get
+  // caught by the "led shelf" trigger below — they must keep their own role.
+  if (cab.parameters.role === "led_strip") return false;
+  if (cab.parameters.role === "opening")   return false;
   if (cab.parameters.role === "open_shelf") return true;
 
   const text = `${cab.name ?? ""} ${cab.notes ?? ""}`.toLowerCase();
@@ -118,6 +122,11 @@ function defaultRows(heightMm: number): number {
 }
 
 function repairDisplayShelfRole(cab: AICabinetSpec): AICabinetSpec {
+  // Belt-and-suspenders: never touch sibling roles even if some future edit to
+  // looksLikeOpenShelf misses one. LED and TV opening are their own thing.
+  if (cab.parameters.role === "led_strip") return cab;
+  if (cab.parameters.role === "opening")   return cab;
+
   if (!looksLikeOpenShelf(cab)) return cab;
   if (cab.parameters.role === "open_shelf") return cab; // already correct
 
@@ -423,9 +432,15 @@ Living room / Entertainment / Display wall (MUST produce 10–15 units, layered)
     for display shelves.
 
     IF NO TV in the prompt:
-      · Emit 3–4 wall-type OPEN DISPLAY SHELVES that fill the space between towers
-      · Each 600–900 mm wide, role="open_shelf", columns 1–2, rows 2–3
+      · Compute middleSpan = roomWidth − leftTower.width − rightTower.width
+      · You MUST fully fill middleSpan with open shelves — NO dead center gap.
+      · Emit 3–4 wall-type OPEN DISPLAY SHELVES, sum of their widths = middleSpan
+        (each ~ middleSpan / 3, rounded to 100 mm; adjust the last one to
+        absorb any rounding remainder so the sum matches exactly).
+      · Each has role="open_shelf". Use columns 2–3 and rows 2–3 so the grid is
+        visible (not a single-column empty box).
       · Notes: "open display shelf" or "LED-backlit shelf"
+      · Verify: leftTower.width + Σ(shelf widths) + rightTower.width === roomWidth
 
     IF THE PROMPT MENTIONS A TV — follow this recipe EXACTLY:
       · Compute middleSpan = roomWidth − leftTower.width − rightTower.width

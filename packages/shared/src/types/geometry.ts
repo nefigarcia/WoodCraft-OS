@@ -210,13 +210,24 @@ function compileFrontPanels(
 
   const bodyH   = Math.max(0, h - toeKickHeightMm);
   const dc      = Math.min(drawers, 5);
-  const drawerH = dc > 0 ? Math.min(210, (bodyH * 0.45) / dc) : 0;
+
+  // drawer_base is a FULL drawer bank — split the entire body across all
+  // drawers with NO doors below. For anything else, drawers stack on top
+  // and doors fill whatever's left (kitchen "utensil drawer over cabinet doors").
+  const fullDrawerBank = type === "drawer_base" && dc > 0;
+  const drawerH = dc > 0
+    ? (fullDrawerBank
+        ? Math.max(60, (bodyH - dc * PGAP_MM) / dc)      // full split, min 60 mm per drawer
+        : Math.min(210, (bodyH * 0.45) / dc))            // capped mixed layout
+    : 0;
   const drawerTot = dc * (drawerH + PGAP_MM);
-  const doorH   = bodyH - drawerTot;
+  const doorH   = fullDrawerBank ? 0 : bodyH - drawerTot;
 
   const fronts: CompiledFrontPanel[] = [];
 
-  // Drawers stack near the top of the cabinet body
+  // Drawers stack near the top of the cabinet body. For full drawer banks,
+  // "top" reaches the very top (doorH === 0). For mixed layouts, they sit
+  // above the door region.
   for (let i = 0; i < dc; i++) {
     const dy = toeKickHeightMm + doorH + i * (drawerH + PGAP_MM);
     const dw = w - 2 * PGAP_MM;
@@ -238,7 +249,7 @@ function compileFrontPanels(
     });
   }
 
-  // Doors fill the remaining space along the bottom
+  // Doors fill the remaining space along the bottom (skipped for full drawer banks)
   const fc = Math.max(1, Math.min(doors, 4));
   if (doorH > 80) {
     const doorW = (w - (fc + 1) * PGAP_MM) / fc;
@@ -438,13 +449,38 @@ export function compileUnit(
 
 // ── The compiler ──────────────────────────────────────────────────────────────
 
+// Detect upper/overhead cabinets by name — used to re-align them to the tower top.
+const UPPER_CAB_RE = /\b(upper|overhead|bridge|top cabinet)\b/i;
+
+// Two-pass adjustment: units the AI labels "Upper …" or "Overhead …" often
+// arrive with posY in the middle band, so they end up floating between the
+// tower top and the base row. Snap their top edge to the tower top so the
+// wall reads as a proper 3-row layout.
+function alignUppersToTowers(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
+  const towerH = Math.max(0, ...cabinets.filter((c) => c.type === "tall").map((c) => c.height));
+  if (towerH <= 0) return cabinets;
+  return cabinets.map((cab) => {
+    const text = `${cab.name ?? ""} ${cab.notes ?? ""}`;
+    if (!UPPER_CAB_RE.test(text)) return cab;
+    if (cab.type === "tall") return cab;                      // towers themselves are fine
+    if (cab.parameters.role && cab.parameters.role !== "cabinet") return cab;
+    const alignedY = Math.max(0, towerH - cab.height);
+    return { ...cab, posY: alignedY };
+  });
+}
+
 export function compileGeometry(
   cabinets: CabinetSpecInput[],
   roomLogic: { suggestedRoomWidth: number; suggestedRoomDepth: number },
   primaryFinish: string,
   roomType: string,
 ): CompiledGeometry {
-  const units: CompiledUnit[] = cabinets.map((cab, idx) => compileUnit(cab, primaryFinish, idx));
+  // Pass 1: snap "upper" cabinets to the tower top before compilation so the
+  // per-unit rowClass reflects the corrected position.
+  const aligned = alignUppersToTowers(cabinets);
+
+  // Pass 2: compile each unit.
+  const units: CompiledUnit[] = aligned.map((cab, idx) => compileUnit(cab, primaryFinish, idx));
 
   // Summary — counts of everything the compiler produced
   const summary: CompiledSummary = {
