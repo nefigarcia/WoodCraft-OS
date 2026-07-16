@@ -163,8 +163,10 @@ function autoDrawerCount(type: CabinetType, explicit?: number): number {
 }
 
 // ── Front-panel layout (single source of truth used by 3D + DXF + preview) ────
-// Mirrors buildFrontPanels() in CabinetEditor.tsx but expressed in mm instead of
-// metres and returns richer per-panel data (handle positions, shaker flag).
+// Mirrors buildFrontPanels() + handle positioning in CabinetEditor.tsx but
+// expressed in mm and with richer per-panel data (handle positions, shaker flag).
+// Handle x/y are the CENTER of the handle bar (Three.js boxGeometry centers on
+// its mesh position).
 
 function compileFrontPanels(
   cab: CabinetSpecInput,
@@ -197,9 +199,10 @@ function compileFrontPanels(
       heightMm: drawerH,
       thicknessMm: DOOR_T_MM,
       hasShakerInset: false,
+      // Handle centered horizontally and vertically on the drawer front
       handle: {
-        x: w / 2 - HANDLE_L_MM / 2,
-        y: dy + drawerH / 2 - 4,
+        x: w / 2,
+        y: dy + drawerH / 2,
         orientation: "horizontal",
         lengthMm: HANDLE_L_MM,
       },
@@ -210,19 +213,23 @@ function compileFrontPanels(
   const fc = Math.max(1, Math.min(doors, 4));
   if (doorH > 80) {
     const doorW = (w - (fc + 1) * PGAP_MM) / fc;
+    const doorPanelY  = toeKickHeightMm + PGAP_MM;
+    const doorPanelH  = doorH - 2 * PGAP_MM;
     for (let i = 0; i < fc; i++) {
       const dx = PGAP_MM + i * (doorW + PGAP_MM);
       fronts.push({
         kind: "door",
         x: dx,
-        y: toeKickHeightMm + PGAP_MM,
+        y: doorPanelY,
         widthMm: doorW,
-        heightMm: doorH - 2 * PGAP_MM,
+        heightMm: doorPanelH,
         thicknessMm: DOOR_T_MM,
         hasShakerInset: true,
+        // Vertical handle on the pull-side (right edge of door), lower quarter.
+        // Matches the original renderer's `hy = py - ph/4` semantics exactly.
         handle: {
           x: dx + doorW - HANDLE_INSET_MM,
-          y: toeKickHeightMm + doorH - doorH / 4,
+          y: doorPanelY + doorPanelH / 4,
           orientation: "vertical",
           lengthMm: HANDLE_L_MM,
         },
@@ -233,50 +240,18 @@ function compileFrontPanels(
   return fronts;
 }
 
-// ── The compiler ──────────────────────────────────────────────────────────────
+// ── Per-unit compiler (exported so 3D can compile a single DB cabinet) ────────
 
-export function compileGeometry(
-  cabinets: CabinetSpecInput[],
-  roomLogic: { suggestedRoomWidth: number; suggestedRoomDepth: number },
+export function compileUnit(
+  cab: CabinetSpecInput,
   primaryFinish: string,
-  roomType: string,
-): CompiledGeometry {
-  const units: CompiledUnit[] = cabinets.map((cab, idx) => {
-    const role     = (cab.parameters.role ?? "cabinet") as CompiledUnit["role"];
-    const rowClass = classifyRow(cab.type, cab.posY ?? 0);
-    const finish   = cab.parameters.finishStyle ?? primaryFinish;
+  idx: number = 0,
+): CompiledUnit {
+  const role     = (cab.parameters.role ?? "cabinet") as CompiledUnit["role"];
+  const rowClass = classifyRow(cab.type, cab.posY ?? 0);
+  const finish   = cab.parameters.finishStyle ?? primaryFinish;
 
-    // Openings and LED strips carry no cabinet features
-    if (role !== "cabinet") {
-      return {
-        id: `unit_${idx + 1}`,
-        name: cab.name,
-        type: cab.type,
-        role,
-        finishStyle: finish,
-        posX: cab.posX ?? 0,
-        posY: cab.posY ?? 0,
-        posZ: cab.posZ ?? 0,
-        width: cab.width,
-        height: cab.height,
-        depth: cab.depth,
-        features: null,
-        rowClass,
-      };
-    }
-
-    const toeH = needsToeKick(cab.type) ? TOE_MM : 0;
-    const isIsland = cab.type === "island";
-    const countertop: CompiledCountertop | null = needsCountertop(cab.type, cab.height)
-      ? {
-          thicknessMm: COUNTERTOP_MM,
-          overhangFrontMm: isIsland ? COUNTERTOP_OVI : COUNTERTOP_OVF,
-          overhangSidesMm: isIsland ? COUNTERTOP_OVI : 0,
-        }
-      : null;
-
-    const fronts = compileFrontPanels(cab, toeH);
-
+  if (role !== "cabinet") {
     return {
       id: `unit_${idx + 1}`,
       name: cab.name,
@@ -289,10 +264,49 @@ export function compileGeometry(
       width: cab.width,
       height: cab.height,
       depth: cab.depth,
-      features: { toeKickHeightMm: toeH, countertop, fronts },
+      features: null,
       rowClass,
     };
-  });
+  }
+
+  const toeH = needsToeKick(cab.type) ? TOE_MM : 0;
+  const isIsland = cab.type === "island";
+  const countertop: CompiledCountertop | null = needsCountertop(cab.type, cab.height)
+    ? {
+        thicknessMm: COUNTERTOP_MM,
+        overhangFrontMm: isIsland ? COUNTERTOP_OVI : COUNTERTOP_OVF,
+        overhangSidesMm: isIsland ? COUNTERTOP_OVI : 0,
+      }
+    : null;
+
+  const fronts = compileFrontPanels(cab, toeH);
+
+  return {
+    id: `unit_${idx + 1}`,
+    name: cab.name,
+    type: cab.type,
+    role,
+    finishStyle: finish,
+    posX: cab.posX ?? 0,
+    posY: cab.posY ?? 0,
+    posZ: cab.posZ ?? 0,
+    width: cab.width,
+    height: cab.height,
+    depth: cab.depth,
+    features: { toeKickHeightMm: toeH, countertop, fronts },
+    rowClass,
+  };
+}
+
+// ── The compiler ──────────────────────────────────────────────────────────────
+
+export function compileGeometry(
+  cabinets: CabinetSpecInput[],
+  roomLogic: { suggestedRoomWidth: number; suggestedRoomDepth: number },
+  primaryFinish: string,
+  roomType: string,
+): CompiledGeometry {
+  const units: CompiledUnit[] = cabinets.map((cab, idx) => compileUnit(cab, primaryFinish, idx));
 
   // Summary — counts of everything the compiler produced
   const summary: CompiledSummary = {

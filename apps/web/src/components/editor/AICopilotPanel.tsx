@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { cabinetsToDxf, cabinetsToCabinetVisionDxf, parseDxfCabinets, downloadDxf } from "@/lib/dxf";
 import type { CompiledGeometry } from "@woodcraft/shared";
+import { compileGeometry } from "@woodcraft/shared";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -273,22 +274,17 @@ function CabCard({ cab }: { cab: AICabinetSpec }) {
 
 // ── Front-elevation mini-preview ─────────────────────────────────────────────
 
-function ElevationPreview({
-  cabinets,
-  roomWidth,
-}: {
-  cabinets: AICabinetSpec[];
-  roomWidth: number;
-}) {
-  const wall = cabinets.filter(
-    (c) => !c.wallSide || c.wallSide === "back" || c.wallSide === "none" || c.wallSide === "island"
-  );
-  if (!wall.length) return null;
+// Reads the same compiled geometry that drives the 3D scene and DXF export.
+// Openings render as a dark recessed rectangle; LED strips as a warm glow;
+// cabinets show their real door/drawer face breakouts.
+function ElevationPreview({ geometry }: { geometry: CompiledGeometry }) {
+  const units = geometry.units;
+  if (!units.length) return null;
 
   const PREVIEW_W = 340;
   const PREVIEW_H = 80;
-  const maxH = Math.max(...wall.map((c) => (c.posY ?? 0) + c.height), 2440);
-  const sx = PREVIEW_W / roomWidth;
+  const maxH = Math.max(geometry.overall.maxHeightMm, 2440);
+  const sx = PREVIEW_W / Math.max(1, geometry.overall.widthMm);
   const sy = PREVIEW_H / maxH;
 
   return (
@@ -297,20 +293,56 @@ function ElevationPreview({
       style={{ height: PREVIEW_H, background: "#07090b" }}
     >
       {/* Floor line */}
-      <div
-        className="absolute bottom-0 left-0 right-0"
-        style={{ height: 1, background: "#1E2226" }}
-      />
-      {wall.map((c, i) => {
-        const col = TYPE_COLOR[c.type]?.text ?? "#6b7280";
-        const x  = (c.posX ?? 0) * sx;
-        const w  = Math.max(c.width * sx - 1, 2);
-        const h  = c.height * sy;
-        const y  = PREVIEW_H - ((c.posY ?? 0) + c.height) * sy;
+      <div className="absolute bottom-0 left-0 right-0" style={{ height: 1, background: "#1E2226" }} />
+
+      {units.map((u) => {
+        const x = u.posX * sx;
+        const w = Math.max(u.width * sx - 1, 2);
+        const h = Math.max(u.height * sy, 2);
+        const y = PREVIEW_H - (u.posY + u.height) * sy;
+
+        // TV opening: dark dashed recess
+        if (u.role === "opening") {
+          return (
+            <div
+              key={u.id}
+              title={u.name}
+              className="absolute"
+              style={{
+                left: x, top: y, width: w, height: h,
+                background: "#000",
+                border: "1px dashed #4b5563",
+                borderRadius: 2,
+              }}
+            />
+          );
+        }
+
+        // LED strip: warm glow bar
+        if (u.role === "led_strip") {
+          return (
+            <div
+              key={u.id}
+              title={u.name}
+              className="absolute"
+              style={{
+                left: x, top: y, width: w, height: h,
+                background: "#ffcc88",
+                boxShadow: "0 0 4px #ffcc88aa",
+                borderRadius: 1,
+              }}
+            />
+          );
+        }
+
+        // Normal cabinet — outline + per-front sub-rectangles from compiled features
+        const col    = TYPE_COLOR[u.type]?.text ?? "#6b7280";
+        const fronts = u.features?.fronts ?? [];
+
         return (
           <div
-            key={i}
-            title={c.name}
+            key={u.id}
+            title={u.name}
             className="absolute"
             style={{
               left: x, top: y, width: w, height: h,
@@ -319,13 +351,25 @@ function ElevationPreview({
               borderRadius: 2,
             }}
           >
-            {/* Door/drawer lines hint */}
-            {w > 18 && h > 14 && (
-              <div
-                className="absolute inset-x-1 inset-y-1 opacity-30"
-                style={{ borderBottom: `1px solid ${col}`, borderTop: `1px solid ${col}` }}
-              />
-            )}
+            {fronts.map((f, fi) => {
+              // Preview coords are top-left origin; compiled coords are bottom-left.
+              const relX = (f.x / u.width) * w;
+              const relY = ((u.height - f.y - f.heightMm) / u.height) * h;
+              const relW = Math.max((f.widthMm  / u.width)  * w, 1);
+              const relH = Math.max((f.heightMm / u.height) * h, 1);
+              return (
+                <div
+                  key={fi}
+                  className="absolute"
+                  style={{
+                    left: relX, top: relY, width: relW, height: relH,
+                    borderRadius: 1,
+                    border: `0.5px solid ${col}88`,
+                    background: f.kind === "drawer" ? `${col}18` : "transparent",
+                  }}
+                />
+              );
+            })}
           </div>
         );
       })}
@@ -402,10 +446,17 @@ function ResultView({
           </div>
         )}
 
-        {/* Front elevation preview */}
+        {/* Output A — Deterministic front-elevation preview from compiled geometry */}
         <ElevationPreview
-          cabinets={result.cabinetList}
-          roomWidth={result.roomLogic.suggestedRoomWidth}
+          geometry={
+            result.compiledGeometry ??
+            compileGeometry(
+              result.cabinetList,
+              result.roomLogic,
+              result.primaryFinish ?? "natural_wood",
+              result.roomType,
+            )
+          }
         />
       </div>
 

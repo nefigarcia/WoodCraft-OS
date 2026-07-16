@@ -13,21 +13,19 @@ import { RoomSelector } from "./RoomSelector";
 import { AddCabinetButton } from "./AddCabinetButton";
 import AICopilotPanel, { type AICabinetSpec } from "./AICopilotPanel";
 import { useCollab } from "@/hooks/useCollab";
-import type { Cabinet } from "@woodcraft/shared";
+import type { Cabinet, CabinetSpecInput } from "@woodcraft/shared";
+import { compileUnit } from "@woodcraft/shared";
 
 interface Props { projectId: string; }
 
-// ─── Cabinet detail constants (metres) ────────────────────────────────────────
-const TOE_H   = 0.089;  // 3.5″ standard toe-kick height
-const DOOR_T  = 0.019;  // 19 mm door / drawer-front slab thickness
-const INSET   = 0.030;  // shaker border width
+// ─── Render-only detail constants (metres) ────────────────────────────────────
+// All parametric geometry (toe-kick, countertop, doors, drawers, handle
+// positions, panel dimensions) now comes from compileUnit(). These constants
+// only control how the meshes look — thickness, inset, protrusion, bar cross-section.
+const DOOR_T  = 0.019;  // 19 mm door / drawer-front slab thickness (visual)
+const INSET   = 0.030;  // shaker border width around raised panel
 const PNL_T   = 0.006;  // raised-panel protrusion above door face
-const TOP_H   = 0.038;  // countertop slab ≈ 1.5″
-const TOP_OVF = 0.019;  // countertop front overhang (base cabinets)
-const TOP_OVI = 0.038;  // countertop overhang all sides (island)
-const PGAP    = 0.002;  // gap between adjacent front panels
 const HDL_T   = 0.008;  // handle bar cross-section
-const HDL_L   = 0.096;  // handle bar length
 
 type Palette = { carcass:string; door:string; doorSel:string; panel:string; panelSel:string; toe:string; handle:string; top:string; };
 
@@ -49,89 +47,68 @@ function getPalette(finishStyle?: string, name?: string, notes?: string): Palett
   return PALETTES[finishStyle ?? ""] ?? DEFAULT_PALETTE;
 }
 
-interface FPanel { x: number; y: number; pw: number; ph: number; isDrawer: boolean; }
-
-function buildFrontPanels(
-  w: number, h: number, type: string, doors: number, drawers: number
-): FPanel[] {
-  const hasToe  = ["base","drawer_base","sink_base","island","tall"].includes(type);
-  const toeH    = hasToe ? TOE_H : 0;
-  const bodyH   = h - toeH;
-  const dc      = Math.min(drawers, 5);
-  const drawerH = dc > 0 ? Math.min(0.21, (bodyH * 0.45) / dc) : 0;
-  const drawerTot = dc * (drawerH + PGAP);
-  const doorH   = bodyH - drawerTot;
-  const result: FPanel[] = [];
-
-  for (let i = 0; i < dc; i++) {
-    result.push({
-      x: PGAP, y: toeH + doorH + i * (drawerH + PGAP),
-      pw: w - 2 * PGAP, ph: drawerH, isDrawer: true,
-    });
-  }
-
-  const fc = Math.max(1, Math.min(doors, 4));
-  if (doorH > 0.08) {
-    const doorW = (w - (fc + 1) * PGAP) / fc;
-    for (let i = 0; i < fc; i++) {
-      result.push({
-        x: PGAP + i * (doorW + PGAP), y: toeH + PGAP,
-        pw: doorW, ph: doorH - 2 * PGAP, isDrawer: false,
-      });
-    }
-  }
-  return result;
+// Convert a DB Cabinet row into the CabinetSpecInput shape the compiler expects.
+function cabinetToSpecInput(cabinet: Cabinet): CabinetSpecInput {
+  return {
+    name: cabinet.name,
+    type: cabinet.type,
+    width: Number(cabinet.width),
+    height: Number(cabinet.height),
+    depth: Number(cabinet.depth),
+    posX: Number(cabinet.posX),
+    posY: Number(cabinet.posY),
+    posZ: Number(cabinet.posZ),
+    parameters: (cabinet.parameters ?? {}) as CabinetSpecInput["parameters"],
+  };
 }
 
 function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
   const selectCabinet = useEditorStore((s) => s.selectCabinet);
   const isSelected    = useEditorStore((s) => s.selectedCabinetId) === cabinet.id;
 
-  const w    = Number(cabinet.width)  / 1000;
-  const h    = Number(cabinet.height) / 1000;
-  const d    = Number(cabinet.depth)  / 1000;
-  const type = cabinet.type as string;
-  const prm  = (cabinet.parameters ?? {}) as Record<string, unknown>;
-  const doors   = Number(prm.doorCount   ?? (w > 0.65 ? 2 : 1));
-  const drawers = Number(prm.drawerCount ?? (type === "drawer_base" ? 3 : 0));
+  const prm         = (cabinet.parameters ?? {}) as Record<string, unknown>;
+  const finishStyle = String(prm.finishStyle ?? "");
 
-  const heightMm = Number(cabinet.height);
-  const isKitchenH = heightMm >= 800 && heightMm <= 950;
-  const hasToe   = ["base","drawer_base","sink_base","island","tall"].includes(type);
-  // Countertop slab only for kitchen-height bases and islands.
-  // Living-room drawer banks / office desks / bedroom pieces have no separate top slab.
-  const hasTop   = type === "island" || (isKitchenH && (type === "base" || type === "sink_base"));
-  const isIsland = type === "island";
-  const toeH     = hasToe ? TOE_H : 0;
-  const isGlass  = String(prm.finishStyle ?? "").includes("glass") ||
-                   `${cabinet.name} ${String(prm.notes ?? "")}`.toLowerCase().includes("fish tank") ||
-                   `${cabinet.name}`.toLowerCase().includes("aquarium");
-
-  const panels = useMemo(
-    () => buildFrontPanels(w, h, type, doors, drawers),
-    [w, h, type, doors, drawers]
+  // Compile this cabinet via the shared geometry compiler — the same function
+  // the DXF exporter and image-prompt builder use. All derived visuals
+  // (drawer counts, door widths, handle positions, toe kick, countertop)
+  // come from one canonical source. No inline math here.
+  const unit = useMemo(
+    () => compileUnit(cabinetToSpecInput(cabinet), finishStyle || "natural_wood"),
+    [cabinet, finishStyle],
   );
 
-  // Group origin = back-left-bottom corner of cabinet footprint
-  const gx = Number(cabinet.posX) / 1000;
-  const gy = Number(cabinet.posY) / 1000;
-  const gz = Number(cabinet.posZ) / 1000;
+  // Metres for Three.js
+  const w  = Number(cabinet.width)  / 1000;
+  const h  = Number(cabinet.height) / 1000;
+  const d  = Number(cabinet.depth)  / 1000;
+  const gx = Number(cabinet.posX)   / 1000;
+  const gy = Number(cabinet.posY)   / 1000;
+  const gz = Number(cabinet.posZ)   / 1000;
 
-  const C = getPalette(String(prm.finishStyle ?? ""), cabinet.name, String(prm.notes ?? ""));
-  const isGloss = String(prm.finishStyle ?? "") === "modern_gloss";
+  const isGlass = finishStyle.includes("glass") ||
+                  `${cabinet.name} ${String(prm.notes ?? "")}`.toLowerCase().includes("fish tank") ||
+                  `${cabinet.name}`.toLowerCase().includes("aquarium");
+
+  const C = getPalette(finishStyle, cabinet.name, String(prm.notes ?? ""));
+  const isGloss = finishStyle === "modern_gloss";
   const doorRoughness = isGloss ? 0.15 : 0.6;
   const doorMetalness = isGloss ? 0.35 : 0.03;
-  const carcassH = h - toeH;
-  const carcassD = d - DOOR_T;
   const doorCol  = isSelected ? C.doorSel  : C.door;
   const pnlCol   = isSelected ? C.panelSel : C.panel;
 
-  // Countertop: overhang front (and all sides for island)
-  const topSideOvh  = isIsland ? TOP_OVI : 0;
-  const topFrontOvh = isIsland ? TOP_OVI : TOP_OVF;
-  const topW  = w + 2 * topSideOvh;
-  const topD  = d + topFrontOvh;
-  const topZC = topD / 2; // flush at back (Z=0), overhang at front
+  const features = unit.features;
+  const toeH     = (features?.toeKickHeightMm ?? 0) / 1000;
+  const carcassH = h - toeH;
+  const carcassD = d - DOOR_T;
+
+  const ct   = features?.countertop;
+  const topH = ct ? ct.thicknessMm / 1000 : 0;
+  const topOvS = ct ? ct.overhangSidesMm / 1000 : 0;
+  const topOvF = ct ? ct.overhangFrontMm / 1000 : 0;
+  const topW = w + 2 * topOvS;
+  const topD = d + topOvF;
+  const topZC = topD / 2;
 
   return (
     <group
@@ -145,30 +122,31 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
       </mesh>
 
       {/* Toe-kick board — bottom-front strip */}
-      {hasToe && (
+      {toeH > 0 && (
         <mesh position={[w / 2, toeH / 2, d - DOOR_T / 2]}>
           <boxGeometry args={[w, toeH, DOOR_T]} />
           <meshStandardMaterial color={C.toe} roughness={0.9} metalness={0} />
         </mesh>
       )}
 
-      {/* Door and drawer front panels */}
-      {panels.map((p, i) => {
-        const px  = p.x + p.pw / 2;
-        const py  = p.y + p.ph / 2;
-        const pzC = d - DOOR_T / 2;          // slab centre Z
-        const iw  = p.pw - 2 * INSET;
-        const ih  = p.ph - 2 * INSET;
-        const showPanel = iw > 0.04 && ih > 0.04;
-        // Handle: centred horizontally on drawers, on the pull side of doors
-        const hx = p.isDrawer ? px : px + p.pw / 2 - 0.035;
-        const hy = p.isDrawer ? py : py - p.ph / 4;
+      {/* Door and drawer front panels — compiled features */}
+      {(features?.fronts ?? []).map((f, i) => {
+        const pw = f.widthMm     / 1000;
+        const ph = f.heightMm    / 1000;
+        const pt = f.thicknessMm / 1000;
+        const px = (f.x + f.widthMm  / 2) / 1000;
+        const py = (f.y + f.heightMm / 2) / 1000;
+        const pzC = d - pt / 2;
+
+        const iw = pw - 2 * INSET;
+        const ih = ph - 2 * INSET;
+        const showShaker = f.hasShakerInset && iw > 0.04 && ih > 0.04;
 
         return (
           <group key={i}>
             {/* Front slab — transparent for glass/aquarium units */}
             <mesh position={[px, py, pzC]} castShadow receiveShadow>
-              <boxGeometry args={[p.pw, p.ph, DOOR_T]} />
+              <boxGeometry args={[pw, ph, pt]} />
               {isGlass
                 ? <meshStandardMaterial color={doorCol} transparent opacity={0.28} roughness={0.05} metalness={0.15} />
                 : <meshStandardMaterial color={doorCol} roughness={doorRoughness} metalness={doorMetalness} />
@@ -178,13 +156,13 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
             {/* Aquarium water volume — only for glass units */}
             {isGlass && (
               <mesh position={[px, py, carcassD / 2]}>
-                <boxGeometry args={[p.pw - 0.04, p.ph - 0.04, carcassD - 0.04]} />
+                <boxGeometry args={[pw - 0.04, ph - 0.04, carcassD - 0.04]} />
                 <meshStandardMaterial color="#083858" transparent opacity={0.55} roughness={0.1} />
               </mesh>
             )}
 
             {/* Shaker raised centre panel — skip for glass */}
-            {showPanel && !isGlass && (
+            {showShaker && !isGlass && (
               <mesh position={[px, py, d + PNL_T / 2]}>
                 <boxGeometry args={[iw, ih, PNL_T]} />
                 <meshStandardMaterial color={pnlCol} roughness={0.65} metalness={0.02} />
@@ -192,9 +170,11 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
             )}
 
             {/* Handle bar — skip for glass/aquarium */}
-            {!isGlass && (
-              <mesh position={[hx, hy, d + HDL_T / 2]}>
-                <boxGeometry args={p.isDrawer ? [HDL_L, HDL_T, HDL_T] : [HDL_T, HDL_L, HDL_T]} />
+            {!isGlass && f.handle && (
+              <mesh position={[f.handle.x / 1000, f.handle.y / 1000, d + HDL_T / 2]}>
+                <boxGeometry args={f.handle.orientation === "horizontal"
+                  ? [f.handle.lengthMm / 1000, HDL_T, HDL_T]
+                  : [HDL_T, f.handle.lengthMm / 1000, HDL_T]} />
                 <meshStandardMaterial color={C.handle} roughness={0.25} metalness={0.85} />
               </mesh>
             )}
@@ -202,10 +182,10 @@ function CabinetMesh({ cabinet }: { cabinet: Cabinet }) {
         );
       })}
 
-      {/* Countertop slab — base and island types only */}
-      {hasTop && (
-        <mesh position={[w / 2, h + TOP_H / 2, topZC]} castShadow receiveShadow>
-          <boxGeometry args={[topW, TOP_H, topD]} />
+      {/* Countertop slab — only when the compiler says so */}
+      {ct && (
+        <mesh position={[w / 2, h + topH / 2, topZC]} castShadow receiveShadow>
+          <boxGeometry args={[topW, topH, topD]} />
           <meshStandardMaterial color={C.top} roughness={0.35} metalness={0.05} />
         </mesh>
       )}
