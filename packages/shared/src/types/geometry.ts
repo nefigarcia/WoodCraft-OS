@@ -469,18 +469,159 @@ function alignUppersToTowers(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
   });
 }
 
+// ── Fix A: base row overlap repair ────────────────────────────────────────────
+// If any floor-level base cabinet overlaps a tower (AI put them at posX=0 while
+// the left tower also starts at 0), redistribute the whole base row equally
+// into the inner span between the two outermost towers. Preserves count.
+
+function repairBaseRowOverlaps(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
+  const towers = cabinets
+    .filter((c) => c.type === "tall")
+    .sort((a, b) => (a.posX ?? 0) - (b.posX ?? 0));
+  if (towers.length < 2) return cabinets;
+
+  const leftTower  = towers[0]!;
+  const rightTower = towers[towers.length - 1]!;
+  const innerStartX = (leftTower.posX ?? 0) + leftTower.width;
+  const innerEndX   = rightTower.posX ?? Infinity;
+  if (innerEndX <= innerStartX) return cabinets;
+
+  // Base row = floor-level physical cabinets that aren't towers, openings,
+  // LED strips, or open shelves.
+  const bases = cabinets.filter((c) => {
+    if (c.type === "tall") return false;
+    if ((c.posY ?? 0) >= 300) return false;
+    const role = c.parameters?.role;
+    if (role === "opening" || role === "led_strip" || role === "open_shelf") return false;
+    return true;
+  });
+  if (bases.length === 0) return cabinets;
+
+  const hasOverlap = bases.some((c) => {
+    const x1 = c.posX ?? 0;
+    const x2 = x1 + c.width;
+    return x1 < innerStartX || x2 > innerEndX;
+  });
+  if (!hasOverlap) return cabinets;
+
+  const innerWidth = innerEndX - innerStartX;
+  const unitWidth  = innerWidth / bases.length;
+
+  const sortedBases = [...bases].sort((a, b) => (a.posX ?? 0) - (b.posX ?? 0));
+  const repaired = new Map<CabinetSpecInput, CabinetSpecInput>();
+  sortedBases.forEach((u, i) => {
+    repaired.set(u, { ...u, posX: innerStartX + unitWidth * i, width: unitWidth });
+  });
+
+  return cabinets.map((c) => repaired.get(c) ?? c);
+}
+
+// ── Fix C: middle-row gap filler ──────────────────────────────────────────────
+// When ALL middle-row units are open shelves (a display wall pattern), close
+// any gap larger than 100 mm with an additional open shelf using the same Y,
+// height, and depth. Never invents TVs or closed cabinets — only more shelves.
+
+function fillMiddleRowGaps(cabinets: CabinetSpecInput[]): CabinetSpecInput[] {
+  const towers = cabinets
+    .filter((c) => c.type === "tall")
+    .sort((a, b) => (a.posX ?? 0) - (b.posX ?? 0));
+  if (towers.length < 2) return cabinets;
+
+  // Look at everything in the middle band. If any middle unit is an opening
+  // (TV recess) or closed cabinet, treat the design as intentional — don't fill.
+  const middleUnits = cabinets.filter((c) => {
+    if (c.type === "tall") return false;
+    const y = c.posY ?? 0;
+    return y >= 300 && y < 1400;
+  });
+  if (middleUnits.length < 1) return cabinets;
+
+  const allOpenShelves = middleUnits.every((c) => c.parameters?.role === "open_shelf");
+  if (!allOpenShelves) return cabinets;
+
+  const leftTower  = towers[0]!;
+  const rightTower = towers[towers.length - 1]!;
+  const innerStartX = (leftTower.posX ?? 0) + leftTower.width;
+  const innerEndX   = rightTower.posX ?? innerStartX;
+
+  const sorted = [...middleUnits].sort((a, b) => (a.posX ?? 0) - (b.posX ?? 0));
+  const template = sorted[0]!;
+  const posY   = template.posY ?? 0;
+  const height = template.height;
+  const depth  = template.depth;
+  const finishStyle =
+    typeof template.parameters?.finishStyle === "string" ? template.parameters.finishStyle : undefined;
+
+  const makeFiller = (x: number, w: number, idx: number): CabinetSpecInput => ({
+    name: `Auto Filler Shelf ${idx + 1}`,
+    type: "wall",
+    width: w,
+    height,
+    depth,
+    posX: x,
+    posY,
+    posZ: 0,
+    parameters: {
+      role: "open_shelf",
+      columns: defaultColumns(w),
+      rows: defaultRows(height),
+      finishStyle,
+    },
+    notes: "Auto-inserted to fill middle-row gap",
+  });
+
+  const fillers: CabinetSpecInput[] = [];
+  const GAP_THRESHOLD = 100; // ignore anything smaller than 10 cm
+
+  // Gap before the first shelf
+  const firstX = sorted[0]!.posX ?? 0;
+  if (firstX - innerStartX > GAP_THRESHOLD) {
+    fillers.push(makeFiller(innerStartX, firstX - innerStartX, fillers.length));
+  }
+
+  // Gaps between consecutive shelves
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const cur  = sorted[i]!;
+    const next = sorted[i + 1]!;
+    const curEnd    = (cur.posX ?? 0) + cur.width;
+    const nextStart = next.posX ?? 0;
+    if (nextStart - curEnd > GAP_THRESHOLD) {
+      fillers.push(makeFiller(curEnd, nextStart - curEnd, fillers.length));
+    }
+  }
+
+  // Gap after the last shelf
+  const last = sorted[sorted.length - 1]!;
+  const lastEnd = (last.posX ?? 0) + last.width;
+  if (innerEndX - lastEnd > GAP_THRESHOLD) {
+    fillers.push(makeFiller(lastEnd, innerEndX - lastEnd, fillers.length));
+  }
+
+  if (fillers.length === 0) return cabinets;
+
+  return [...cabinets, ...fillers];
+}
+
 export function compileGeometry(
   cabinets: CabinetSpecInput[],
   roomLogic: { suggestedRoomWidth: number; suggestedRoomDepth: number },
   primaryFinish: string,
   roomType: string,
 ): CompiledGeometry {
-  // Pass 1: snap "upper" cabinets to the tower top before compilation so the
-  // per-unit rowClass reflects the corrected position.
-  const aligned = alignUppersToTowers(cabinets);
+  // Pre-compile fixes — deterministic layout corrections applied to the raw
+  // spec BEFORE per-unit compilation so `classifyRow()` and geometry maths
+  // see the corrected positions/widths.
+  //   1. alignUppersToTowers  — snap "upper" cabinets to the tower top edge
+  //   2. repairBaseRowOverlaps — redistribute base row into tower inner span
+  //                              when the AI placed drawers behind a tower
+  //   3. fillMiddleRowGaps    — if all middle units are open shelves, close
+  //                              any gap > 100mm with an auto-inserted shelf
+  const aligned  = alignUppersToTowers(cabinets);
+  const nonOverlap = repairBaseRowOverlaps(aligned);
+  const filled   = fillMiddleRowGaps(nonOverlap);
 
-  // Pass 2: compile each unit.
-  const units: CompiledUnit[] = aligned.map((cab, idx) => compileUnit(cab, primaryFinish, idx));
+  // Compile each unit.
+  const units: CompiledUnit[] = filled.map((cab, idx) => compileUnit(cab, primaryFinish, idx));
 
   // Summary — counts of everything the compiler produced
   const summary: CompiledSummary = {

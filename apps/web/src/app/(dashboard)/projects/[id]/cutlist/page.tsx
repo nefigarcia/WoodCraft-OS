@@ -45,6 +45,7 @@ interface NestingSheet {
   totalSheets: number;
   overallEfficiency: number;
   svg: string | null;
+  error?: string | null;
 }
 
 function eb(row: CutlistRow): string {
@@ -64,7 +65,7 @@ async function downloadPdf(cutlist: Cutlist, projectId: string) {
   const now = new Date().toLocaleDateString();
 
   doc.setFontSize(16);
-  doc.text("WoodCraft OS — Cut List", 14, 14);
+  doc.text("CabinetFlow AI — Cut List", 14, 14);
   doc.setFontSize(9);
   doc.setTextColor(120);
   doc.text(`Generated: ${now}  |  Project ID: ${projectId}`, 14, 20);
@@ -207,7 +208,14 @@ export default function CutlistPage() {
                       dangerouslySetInnerHTML={{ __html: s.svg }}
                     />
                   ) : (
-                    <p className="text-gray-600 text-xs">Layout unavailable</p>
+                    <div className="text-xs">
+                      <p className="text-gray-600">Layout unavailable</p>
+                      {s.error && (
+                        <p className="mt-1 text-red-400/80 font-mono break-words">
+                          {s.error}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}

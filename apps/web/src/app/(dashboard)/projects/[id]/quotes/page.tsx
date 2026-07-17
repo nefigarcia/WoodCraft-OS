@@ -146,7 +146,7 @@ export default function QuotesPage() {
                 </div>
                 <div className="flex items-center gap-2 ml-4">
                   <button
-                    onClick={() => void downloadQuotePdf(q, id, org?.name ?? "WoodCraft OS")}
+                    onClick={() => void downloadQuotePdf(q, id, org?.name ?? "CabinetFlow AI")}
                     className="text-xs bg-surface-100 hover:bg-surface-200 text-gray-300 px-3 py-1.5 rounded-md transition-colors"
                   >
                     PDF

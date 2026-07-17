@@ -88,7 +88,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               className="font-bold text-sm tracking-tight"
               style={{ color: "#E8C547", fontFamily: "monospace", letterSpacing: "1px" }}
             >
-              WoodCraft OS
+              CabinetFlow AI
             </span>
             <p className="text-gray-500 text-xs mt-0.5 truncate">{org?.name}</p>
           </div>

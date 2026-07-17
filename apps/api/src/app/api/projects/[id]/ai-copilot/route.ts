@@ -519,10 +519,25 @@ STEP 4 — COORDINATE SYSTEM
   posZ: mm from back wall to BACK edge (0 for back-wall units)
         — Left/right-wall units: posX = 0 or (roomWidth − depth)
 
-STEP 5 — EXACT POSITION CHAINING (no gaps, no overlaps)
+STEP 5 — EXACT POSITION CHAINING (no gaps, no overlaps — READ CAREFULLY)
   For units along the same wall, chain posX exactly:
     unit[n+1].posX = unit[n].posX + unit[n].width
   Verify: sum of widths = total run length (room width or the relevant wall run).
+
+  CRITICAL — base cabinets that share a wall with a tower MUST start AFTER
+  the tower's right edge. NEVER put a base cabinet at posX=0 when the left
+  tower is also at posX=0 — they will overlap.
+
+  Worked example — living room, room=3000mm, two 600mm towers:
+    Left Tower:     posX = 0,    width = 600      → spans 0-600
+    Base Drawer 1:  posX = 600,  width = 600      → spans 600-1200
+                    ↑ starts where left tower ends. NOT posX = 0.
+    Base Drawer 2:  posX = 1200, width = 600      → spans 1200-1800
+    Base Drawer 3:  posX = 1800, width = 600      → spans 1800-2400
+                    ↑ ends where right tower starts.
+    Right Tower:    posX = 2400, width = 600      → spans 2400-3000
+    ✓ 600 (tower) + 3×600 (bases) + 600 (tower) = 3000 = roomWidth
+
   For symmetric layouts (e.g. left-tower + center + right-tower):
     left and right units must have EQUAL width and depth.
     rightUnit.posX = roomWidth − rightUnit.width

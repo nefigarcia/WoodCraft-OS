@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { EditorHeader } from "@/components/editor/EditorHeader";
 
-export const metadata: Metadata = { title: "Cabinet Editor — WoodCraft OS" };
+export const metadata: Metadata = { title: "Cabinet Editor — CabinetFlow AI" };
 
 const CabinetEditor = dynamic(() => import("@/components/editor/CabinetEditor"), {
   ssr: false,

@@ -53,7 +53,7 @@ const HERO_PHASES = [
     label: "14-DAY FREE TRIAL",
     h1: "Software Built",
     h2: "for Cabinet Shops",
-    sub: "Stop patching together spreadsheets, PDFs, and outdated CAD tools. WoodCraft OS connects design, production, and installation in one place.",
+    sub: "Stop patching together spreadsheets, PDFs, and outdated CAD tools. CabinetFlow AI connects design, production, and installation in one place.",
     accent: PURPLE,
     showCTA: true,
   },
@@ -240,7 +240,7 @@ function DevBanner({ onDismiss }: { onDismiss: () => void }) {
         >
           BETA
         </span>
-        WoodCraft OS is currently in development.{" "}
+        CabinetFlow AI is currently in development.{" "}
         <span style={{ color: "#A09070" }}>Share your feedback with </span>
         <span style={{ color: GOLD, fontWeight: 600 }}>Mia</span>
         <span style={{ color: "#A09070" }}>, our AI agent — call </span>
@@ -406,7 +406,7 @@ function Nav({ onCTA, topOffset = 0 }: { onCTA: () => void; topOffset?: number }
       <div className="flex items-center gap-2">
         <PulseRing color={GOLD} size={7} />
         <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "2px", color: GOLD, fontFamily: "monospace" }}>
-          WOODCRAFT OS
+          CABINETFLOW AI
         </span>
       </div>
 
@@ -836,6 +836,262 @@ function HowItWorksSection() {
   );
 }
 
+// ─── AICopilotSection ─────────────────────────────────────────────────────────
+
+const COPILOT_CAPABILITIES = [
+  {
+    icon: "⌨",
+    title: "Prompt → Design",
+    desc: "Describe a room in plain English. The Co-pilot generates a complete parametric cabinet layout in seconds — every unit sized, positioned, and finish-matched.",
+  },
+  {
+    icon: "✏",
+    title: "Sketch → CAD",
+    desc: "Snap a photo of a napkin sketch or floor plan. AI parses it into positioned cabinet specs you can drop straight into 3D.",
+  },
+  {
+    icon: "📦",
+    title: "DXF ⇄ 3D",
+    desc: "Import DXF from CabinetVision or export your design back on demand — with door / drawer / carcass on separate sub-layers.",
+  },
+  {
+    icon: "💡",
+    title: "One source of truth",
+    desc: "3D scene, DXF, elevation preview, and AI concept render all read from the same compiled geometry. They can never drift.",
+  },
+];
+
+function AICopilotSection({ onCTA }: { onCTA: () => void }) {
+  const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry?.isIntersecting) setVisible(true); },
+      { threshold: 0.15 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <section ref={ref} className="px-5 sm:px-10 py-16 sm:py-24" style={{ background: BG }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-3">
+          <PulseRing color={TEAL} size={8} />
+          <span style={{ fontSize: 10, letterSpacing: "4px", color: TEAL }}>AI CO-PILOT</span>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "2px",
+              color: GOLD,
+              background: "rgba(232,197,71,0.12)",
+              border: "1px solid rgba(232,197,71,0.25)",
+              padding: "2px 6px",
+            }}
+          >
+            NEW
+          </span>
+        </div>
+        <h2 className="font-bold text-white text-2xl sm:text-3xl mb-3">
+          Design any room in one prompt
+        </h2>
+        <p className="mb-10 sm:mb-14 max-w-2xl" style={{ fontSize: 14, color: MUTED, lineHeight: 1.75 }}>
+          Type what you want — the AI Co-pilot generates a full parametric cabinet layout, an interactive 3D scene,
+          a CabinetVision-ready DXF, and a photorealistic concept render. All from the same source of truth.
+        </p>
+
+        {/* Two-column: capabilities on the left, mock demo on the right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-start">
+          {/* Left column — capabilities list */}
+          <div className="flex flex-col" style={{ background: BORDER }}>
+            {COPILOT_CAPABILITIES.map((c, i) => (
+              <div
+                key={c.title}
+                style={{
+                  background: BG,
+                  padding: "22px 24px",
+                  marginBottom: i < COPILOT_CAPABILITIES.length - 1 ? 1 : 0,
+                  opacity: visible ? 1 : 0,
+                  transform: visible ? "translateX(0)" : "translateX(-20px)",
+                  transition: `opacity 0.6s ease ${i * 100}ms, transform 0.6s ease ${i * 100}ms`,
+                }}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <span style={{ fontSize: 20, color: TEAL }}>{c.icon}</span>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{c.title}</div>
+                </div>
+                <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.7, paddingLeft: 32 }}>{c.desc}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Right column — mock chat panel */}
+          <div
+            style={{
+              background: CARD,
+              border: `1px solid ${BORDER}`,
+              borderRadius: 8,
+              padding: "18px 18px 20px",
+              opacity: visible ? 1 : 0,
+              transform: visible ? "translateY(0)" : "translateY(24px)",
+              transition: "opacity 0.7s ease 0.2s, transform 0.7s ease 0.2s",
+            }}
+          >
+            {/* Panel header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <PulseRing color={TEAL} size={6} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", letterSpacing: "0.5px" }}>
+                  AI Co-pilot
+                </span>
+              </div>
+              <span style={{ fontSize: 9, color: DIM, letterSpacing: "2px" }}>LIVE</span>
+            </div>
+
+            {/* User prompt bubble */}
+            <div className="flex justify-end mb-3">
+              <div
+                style={{
+                  background: `${TEAL}18`,
+                  border: `1px solid ${TEAL}33`,
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  color: "#fff",
+                  maxWidth: "80%",
+                }}
+              >
+                Design a modern entertainment wall with LED shelves for a big living room
+              </div>
+            </div>
+
+            {/* AI response — design card */}
+            <div
+              style={{
+                border: `1px solid ${TEAL}44`,
+                borderRadius: 8,
+                overflow: "hidden",
+                background: BG2,
+              }}
+            >
+              {/* Card header */}
+              <div style={{ padding: "10px 12px", borderBottom: `1px solid ${BORDER}` }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "2px", color: TEAL }}>
+                    🛋 LIVING ROOM
+                  </span>
+                  <span style={{ fontSize: 9, color: DIM }}>141.7" × 84"</span>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", lineHeight: 1.3 }}>
+                  Symmetric entertainment wall with LED shelves
+                </div>
+              </div>
+
+              {/* Mock elevation preview */}
+              <div style={{ background: "#07090b", padding: "10px 12px" }}>
+                <svg viewBox="0 0 340 80" style={{ width: "100%", height: 80, display: "block" }}>
+                  {/* Left tower */}
+                  <rect x="0"   y="0"  width="40" height="80" fill={`${PURPLE}22`} stroke={`${PURPLE}55`} strokeWidth="1" rx="2" />
+                  <line x1="0"   y1="20" x2="40" y2="20" stroke={`${PURPLE}44`} strokeWidth="0.5" />
+                  <line x1="0"   y1="40" x2="40" y2="40" stroke={`${PURPLE}44`} strokeWidth="0.5" />
+                  <line x1="0"   y1="60" x2="40" y2="60" stroke={`${PURPLE}44`} strokeWidth="0.5" />
+                  {/* Right tower */}
+                  <rect x="300" y="0"  width="40" height="80" fill={`${PURPLE}22`} stroke={`${PURPLE}55`} strokeWidth="1" rx="2" />
+                  <line x1="300" y1="20" x2="340" y2="20" stroke={`${PURPLE}44`} strokeWidth="0.5" />
+                  <line x1="300" y1="40" x2="340" y2="40" stroke={`${PURPLE}44`} strokeWidth="0.5" />
+                  <line x1="300" y1="60" x2="340" y2="60" stroke={`${PURPLE}44`} strokeWidth="0.5" />
+                  {/* Upper cabinets */}
+                  <rect x="42"  y="0"  width="60" height="18" fill={`${PURPLE}18`} stroke={`${PURPLE}44`} strokeWidth="0.5" rx="1" />
+                  <rect x="104" y="0"  width="60" height="18" fill={`${PURPLE}18`} stroke={`${PURPLE}44`} strokeWidth="0.5" rx="1" />
+                  <rect x="176" y="0"  width="60" height="18" fill={`${PURPLE}18`} stroke={`${PURPLE}44`} strokeWidth="0.5" rx="1" />
+                  <rect x="238" y="0"  width="60" height="18" fill={`${PURPLE}18`} stroke={`${PURPLE}44`} strokeWidth="0.5" rx="1" />
+                  {/* Middle open shelves with cubby grid */}
+                  <rect x="42"  y="20" width="122" height="34" fill={`${PURPLE}12`} stroke={`${PURPLE}44`} strokeWidth="0.5" rx="1" />
+                  <line x1="83"  y1="20" x2="83"  y2="54" stroke={`${PURPLE}55`} strokeWidth="0.5" />
+                  <line x1="124" y1="20" x2="124" y2="54" stroke={`${PURPLE}55`} strokeWidth="0.5" />
+                  <line x1="42"  y1="37" x2="164" y2="37" stroke={`${PURPLE}55`} strokeWidth="0.5" />
+                  <rect x="176" y="20" width="122" height="34" fill={`${PURPLE}12`} stroke={`${PURPLE}44`} strokeWidth="0.5" rx="1" />
+                  <line x1="217" y1="20" x2="217" y2="54" stroke={`${PURPLE}55`} strokeWidth="0.5" />
+                  <line x1="258" y1="20" x2="258" y2="54" stroke={`${PURPLE}55`} strokeWidth="0.5" />
+                  <line x1="176" y1="37" x2="298" y2="37" stroke={`${PURPLE}55`} strokeWidth="0.5" />
+                  {/* LED strips */}
+                  <rect x="42"  y="55" width="122" height="2" fill={GOLD} opacity="0.7" />
+                  <rect x="176" y="55" width="122" height="2" fill={GOLD} opacity="0.7" />
+                  {/* Base drawer bank */}
+                  <rect x="42"  y="58" width="64"  height="22" fill={`${TEAL}22`} stroke={`${TEAL}66`} strokeWidth="0.5" rx="1" />
+                  <line x1="42"  y1="65" x2="106" y2="65" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                  <line x1="42"  y1="72" x2="106" y2="72" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                  <rect x="106" y="58" width="64"  height="22" fill={`${TEAL}22`} stroke={`${TEAL}66`} strokeWidth="0.5" rx="1" />
+                  <line x1="106" y1="65" x2="170" y2="65" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                  <line x1="106" y1="72" x2="170" y2="72" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                  <rect x="170" y="58" width="64"  height="22" fill={`${TEAL}22`} stroke={`${TEAL}66`} strokeWidth="0.5" rx="1" />
+                  <line x1="170" y1="65" x2="234" y2="65" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                  <line x1="170" y1="72" x2="234" y2="72" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                  <rect x="234" y="58" width="64"  height="22" fill={`${TEAL}22`} stroke={`${TEAL}66`} strokeWidth="0.5" rx="1" />
+                  <line x1="234" y1="65" x2="298" y2="65" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                  <line x1="234" y1="72" x2="298" y2="72" stroke={`${TEAL}66`} strokeWidth="0.5" />
+                </svg>
+              </div>
+
+              {/* Result meta */}
+              <div style={{ padding: "10px 12px", borderTop: `1px solid ${BORDER}`, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10, background: `${GREEN}18`, color: GREEN, border: `1px solid ${GREEN}33`, padding: "2px 8px", borderRadius: 999 }}>
+                  ✓ 11 units
+                </span>
+                <span style={{ fontSize: 10, background: `${GREEN}18`, color: GREEN, border: `1px solid ${GREEN}33`, padding: "2px 8px", borderRadius: 999 }}>
+                  ✓ 2 LED strips
+                </span>
+                <span style={{ fontSize: 10, background: `${GREEN}18`, color: GREEN, border: `1px solid ${GREEN}33`, padding: "2px 8px", borderRadius: 999 }}>
+                  ✓ 12 cubbies
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div className="flex" style={{ borderTop: `1px solid ${BORDER}` }}>
+                <div style={{ flex: 1, padding: "10px 12px", fontSize: 11, fontWeight: 700, color: GOLD, textAlign: "center", background: `${GOLD}0a` }}>
+                  Add to 3D
+                </div>
+                <div style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: TEAL, textAlign: "center", borderLeft: `1px solid ${BORDER}` }}>
+                  ⬇ DXF
+                </div>
+                <div style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: TEAL, textAlign: "center", borderLeft: `1px solid ${BORDER}` }}>
+                  ⬇ CV
+                </div>
+              </div>
+            </div>
+
+            {/* Response caption */}
+            <div style={{ marginTop: 12, fontSize: 11, color: DIM, textAlign: "center" }}>
+              ~15 s from prompt to DXF · every output derived from the same compiled geometry
+            </div>
+          </div>
+        </div>
+
+        {/* CTA row */}
+        <div className="flex items-center justify-center gap-3 flex-wrap mt-10 sm:mt-14">
+          <button
+            onClick={onCTA}
+            className="font-bold transition-all active:scale-95"
+            style={{ fontSize: 12, letterSpacing: "2px", padding: "14px 28px", background: TEAL, color: BG }}
+          >
+            TRY THE CO-PILOT →
+          </button>
+          <Link
+            href="/register"
+            className="font-bold transition-all"
+            style={{ fontSize: 12, letterSpacing: "2px", padding: "14px 28px", border: `1px solid ${TEAL}55`, color: TEAL }}
+          >
+            START FREE
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── StatsSection ─────────────────────────────────────────────────────────────
 
 function StatsSection() {
@@ -958,7 +1214,7 @@ function Footer({ onCTA }: { onCTA: () => void }) {
             <div
               style={{ fontSize: 13, fontWeight: 700, letterSpacing: "3px", color: GOLD, fontFamily: "monospace", marginBottom: 10 }}
             >
-              WOODCRAFT OS
+              CABINETFLOW AI
             </div>
             <p style={{ fontSize: 12, color: MUTED, maxWidth: 260, lineHeight: 1.8, marginBottom: 16 }}>
               AI-powered cabinet design, validation, and CNC production — all in one platform.
@@ -1059,6 +1315,7 @@ export default function LandingPage() {
       <ScrollVideoHero onCTA={() => setShowPricing(true)} />
       <FeaturesSection />
       <HowItWorksSection />
+      <AICopilotSection onCTA={() => setShowPricing(true)} />
       <StatsSection />
       <CTASection onCTA={() => setShowPricing(true)} />
       <Footer onCTA={() => setShowPricing(true)} />
