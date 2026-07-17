@@ -206,5 +206,5 @@ def build_shop_drawing_svg(req: CabinetGeometryRequest) -> bytes:
     {req.type.upper()} CABINET &#8212; {W:.0f}W &#215; {H:.0f}H &#215; {D:.0f}D mm
   </text>
   <text x="{total_w - MARGIN:.1f}" y="{total_h - MARGIN * 0.7:.1f}"
-        text-anchor="end" font-size="{FS - 1}px" fill="#aaa">WoodCraft OS</text>
+        text-anchor="end" font-size="{FS - 1}px" fill="#aaa">CabinetFlow AI</text>
 </svg>""".encode("utf-8")

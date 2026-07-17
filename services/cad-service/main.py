@@ -7,7 +7,7 @@ from app.routers import cabinet
 from app.routers import nesting
 
 app = FastAPI(
-    title="WoodCraft CAD Service",
+    title="CabinetFlow CAD Service",
     description="Parametric cabinet geometry via OpenCascade",
     version="0.1.0",
     docs_url="/docs",
