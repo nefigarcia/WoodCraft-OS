@@ -31,6 +31,9 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await apiClient.post<AuthResponse>("/auth/register", form);
+      if (typeof window !== "undefined" && window.fbq) {
+        window.fbq("track", "CompleteRegistration");
+      }
       setAuth(res.user, res.org, res.accessToken, res.refreshToken);
       router.push("/dashboard");
     } catch (err: unknown) {
