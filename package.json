@@ -1,7 +1,10 @@
 {
   "name": "woodcraft-os",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
@@ -15,12 +18,15 @@
     "db:reset": "npm run --prefix packages/db db:reset"
   },
   "devDependencies": {
+    "prettier": "^3.3.0",
     "turbo": "^2.3.0",
-    "typescript": "^5.6.0",
-    "prettier": "^3.3.0"
+    "typescript": "^5.6.0"
   },
   "packageManager": "npm@10.8.0",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
   }
 }

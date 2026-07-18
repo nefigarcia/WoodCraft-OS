@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { Analytics } from "@vercel/analytics/next";
 import { MetaPixel } from "@/components/analytics/MetaPixel";
 import "./globals.css";
 
@@ -21,6 +22,7 @@ export default function RootLayout({
           <MetaPixel />
         </Suspense>
         {children}
+        <Analytics />
       </body>
     </html>
   );
