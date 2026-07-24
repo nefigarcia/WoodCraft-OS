@@ -1093,10 +1093,9 @@ export default function AICopilotPanel({
                   placeholder="Describe any room design…"
                   disabled={busy}
                   rows={2}
-                  className="flex-1 resize-none text-sm text-white placeholder-gray-700 rounded-lg px-3 py-2 outline-none"
+                  className="flex-1 resize-none text-sm text-white placeholder-gray-600 rounded-lg px-3 py-2 outline-none border border-[#3A4250] focus:border-[#c8852a] focus:ring-2 focus:ring-[#c8852a]/30 transition-all"
                   style={{
                     background: "#0D0F12",
-                    border: "1px solid #1E2226",
                     lineHeight: 1.5,
                   }}
                 />
